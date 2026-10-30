@@ -1,8 +1,10 @@
 import { PROVIDERS, LANGUAGES, STORAGE_KEY, getSettings, saveSettings, isProviderReady, getProvider, extensionAvailable, validateEndpoint } from './lib/config.js';
 import { requestSelectionPermission } from './lib/permissions.js';
+import { THEMES, normalizeTheme, applyTheme } from './lib/theme.js';
 
 const $ = id => document.getElementById(id);
 let settings = await getSettings();
+applyTheme(document.documentElement, settings.theme);
 let selectedProvider = settings.activeProvider;
 let selectedMode = settings.displayMode;
 let toastTimer;
@@ -16,6 +18,9 @@ let usageTimer;
 let usageChangeTimer;
 let usageClearing = false;
 let usageHasSnapshot = false;
+let themeSaving = false;
+let pendingTheme;
+let settingsUpdateEpoch = 0;
 
 function notify(message) {
   $('toast-text').textContent = message;
@@ -167,6 +172,7 @@ const views = {
   providers: ['AI 服务商', '让语言，不再是边界', '连接你信赖的 AI，让每个网页都像母语一样自然。'],
   preferences: ['翻译偏好', '用你熟悉的方式，阅读世界', '选择一种语言，找到属于你的阅读节奏。'],
   performance: ['速度与缓存', '少一点等待，多一点流畅', '让文本优先抵达，让好奇心持续向前。'],
+  appearance: ['外观主题', '让阅读，也有你的风格', '选择一种喜欢的配色，让每个翻译界面都更合心意。'],
   usage: ['用量统计', '每一次翻译，都心中有数', '查看请求、Token 与缓存，了解你的 AI 翻译用量。'],
 };
 function showView(view) {
@@ -226,17 +232,25 @@ $('selection-enabled').addEventListener('change', async event => {
     notify(error.message || '操作失败，请重试');
   } finally { control.disabled = false; }
 });
-if (extensionAvailable) chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !changes[STORAGE_KEY]) return;
+function refreshExternalSettings() {
+  const epoch = ++settingsUpdateEpoch;
   getSettings().then(latest => {
+    if (epoch !== settingsUpdateEpoch) return;
     settings = latest;
+    applyTheme(document.documentElement, latest.theme);
+    if (!themeSaving) $('theme-save-status').classList.remove('error');
+    renderThemeChoices();
     if (!$('selection-enabled').disabled) {
       $('selection-enabled').checked = latest.selectionEnabled;
       $('selection-setting-status').textContent = latest.selectionEnabled ? '已开启 · 复用当前 AI 服务与目标语言' : '已关闭 · 可在插件弹窗快捷开启';
     }
     renderOverview();
   }).catch(() => {});
+}
+if (extensionAvailable) chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[STORAGE_KEY]) refreshExternalSettings();
 });
+else window.addEventListener('storage', event => { if (event.key === STORAGE_KEY) refreshExternalSettings(); });
 function renderDisplayMode() {
   document.querySelectorAll('#display-mode [data-mode]').forEach(el => { el.classList.toggle('active', el.dataset.mode === selectedMode); el.setAttribute('aria-pressed', String(el.dataset.mode === selectedMode)); });
   $('reading-original').hidden = selectedMode === 'translated';
@@ -505,6 +519,69 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !$('view-usage').hidden) refreshUsageStats({ quiet: true });
 });
 window.addEventListener('pagehide', () => { clearInterval(usageTimer); clearTimeout(usageChangeTimer); });
+
+function renderThemeChoices() {
+  const selected = normalizeTheme(pendingTheme || settings.theme);
+  for (const button of $('theme-grid').querySelectorAll('[data-theme-id]')) {
+    const active = button.dataset.themeId === selected;
+    button.setAttribute('aria-pressed', String(active));
+    button.disabled = themeSaving;
+    button.querySelector('.theme-current').textContent = active ? '使用中' : '选择主题';
+  }
+  if (!themeSaving) $('theme-save-status').textContent = `当前主题：${THEMES.find(theme => theme.id === selected)?.name || selected} · ${extensionAvailable ? '已保存，所有翻译界面同步生效' : '预览主题已保存在此浏览器'}`;
+}
+async function chooseTheme(id) {
+  if (themeSaving || !THEMES.some(theme => theme.id === id) || normalizeTheme(settings.theme) === id) return;
+  themeSaving = true;
+  pendingTheme = id;
+  applyTheme(document.documentElement, id);
+  renderThemeChoices();
+  $('theme-save-status').textContent = '正在保存主题…';
+  $('theme-save-status').classList.remove('error');
+  try {
+    const latest = await getSettings();
+    settings = await saveSettings({ ...latest, theme: id });
+    applyTheme(document.documentElement, settings.theme);
+  } catch {
+    try { settings = await getSettings(); } catch { /* Keep the last saved settings if storage is unavailable. */ }
+    applyTheme(document.documentElement, settings.theme);
+    $('theme-save-status').classList.add('error');
+  } finally {
+    const failed = $('theme-save-status').classList.contains('error');
+    themeSaving = false;
+    pendingTheme = undefined;
+    renderThemeChoices();
+    if (failed) $('theme-save-status').textContent = '主题保存失败，已恢复原主题，请重试。';
+  }
+}
+function createThemeChoices() {
+  $('theme-grid').replaceChildren(...THEMES.map(theme => {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'theme-card'; button.dataset.themeId = theme.id;
+    button.setAttribute('aria-label', `${theme.name}，${theme.description}`);
+    const preview = document.createElement('span'); preview.className = 'theme-preview'; preview.setAttribute('aria-hidden', 'true');
+    for (const [key, color] of Object.entries(theme.preview)) preview.style.setProperty(`--preview-${key}`, color);
+    const bar = document.createElement('span'); bar.className = 'theme-preview-top';
+    for (let index = 0; index < 3; index++) bar.append(document.createElement('i'));
+    const layout = document.createElement('span'); layout.className = 'theme-preview-layout';
+    const rail = document.createElement('span'); rail.className = 'theme-preview-rail'; rail.append(document.createElement('i'), document.createElement('i'), document.createElement('i'));
+    const body = document.createElement('span'); body.className = 'theme-preview-body';
+    const heading = document.createElement('span'); heading.className = 'theme-preview-heading';
+    const line = document.createElement('span'); line.className = 'theme-preview-line';
+    const block = document.createElement('span'); block.className = 'theme-preview-block';
+    const action = document.createElement('span'); action.className = 'theme-preview-action';
+    body.append(heading, line, block, action); layout.append(rail, body); preview.append(bar, layout);
+    const info = document.createElement('span'); info.className = 'theme-info';
+    const name = document.createElement('strong'); name.textContent = theme.name;
+    const description = document.createElement('span'); description.textContent = theme.description;
+    const current = document.createElement('span'); current.className = 'theme-current';
+    info.append(name, description, current); button.append(preview, info);
+    button.addEventListener('click', () => chooseTheme(theme.id));
+    return button;
+  }));
+  renderThemeChoices();
+}
+createThemeChoices();
 
 $('preview-banner').hidden = extensionAvailable;
 renderOverview(); renderProviderCards(); renderProviderForm(); renderDisplayMode(); showView(location.hash.slice(1) || 'providers');

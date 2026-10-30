@@ -14,6 +14,8 @@
   let epoch = 0;
   let sessionId = '';
   let settings = {};
+  let themeRevision = 0;
+  let latestTheme;
   let queue = [];
   let running = 0;
   let observer = null;
@@ -60,12 +62,12 @@
     const shadow = host.attachShadow({ mode: 'closed' });
     const style = element('style');
     style.textContent = `
-      :host{all:initial;position:fixed;bottom:24px;right:24px;z-index:2147483647;color:#20231d;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;line-height:1.4;color-scheme:light}
-      *{box-sizing:border-box}button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid #5f8520;outline-offset:3px}
-      .bar{display:flex;align-items:center;gap:12px;padding:12px 14px;background:#fff;border:1px solid #e5e8df;border-radius:16px;box-shadow:0 8px 35px #17200b20;max-width:min(650px,calc(100vw - 32px))}
-      .mark{width:34px;height:34px;background:#c7ef65;border-radius:10px;display:grid;place-items:center;font-size:18px;font-weight:750;flex-shrink:0}.info{min-width:128px;max-width:260px}.title{font-weight:650;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.detail{font-size:11px;color:#777e6d;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .progress{height:3px;border-radius:2px;background:#eef1e8;margin-top:7px;overflow:hidden}.fill{height:100%;background:#95c93c;transition:width .2s}
-      .actions{display:flex;align-items:center;gap:5px}.action{border:0;border-radius:8px;background:#f3f5ef;color:#424a36;padding:7px 10px;white-space:nowrap}.action:hover{background:#e9eedf}.restore{background:#20251c;color:#fff}.restore:hover{background:#37412c}.close{border:0;background:transparent;font-size:20px;color:#909687;padding:1px 5px}.retry{background:#fff0d6;color:#8a5e12}[hidden]{display:none!important}
+      :host{all:initial;position:fixed;bottom:24px;right:24px;z-index:2147483647;color:var(--pl-text,#20231d);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;line-height:1.4;color-scheme:var(--pl-color-scheme,light)}
+      *{box-sizing:border-box}button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--pl-focus,#5f8520);outline-offset:3px}
+      .bar{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--pl-surface,#fff);border:1px solid var(--pl-line,#e5e8df);border-radius:16px;box-shadow:0 8px 35px var(--pl-shadow,#17200b20);max-width:min(650px,calc(100vw - 32px))}
+      .mark{width:34px;height:34px;background:var(--pl-accent,#c7ef65);color:var(--pl-accent-text,#20231d);border-radius:10px;display:grid;place-items:center;font-size:18px;font-weight:750;flex-shrink:0}.info{min-width:128px;max-width:260px}.title{font-weight:650;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.detail{font-size:11px;color:var(--pl-muted,#777e6d);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .progress{height:3px;border-radius:2px;background:var(--pl-surface-soft,#eef1e8);margin-top:7px;overflow:hidden}.fill{height:100%;background:var(--pl-accent,#95c93c);transition:width .2s}
+      .actions{display:flex;align-items:center;gap:5px}.action{border:0;border-radius:8px;background:var(--pl-surface-soft,#f3f5ef);color:var(--pl-text,#424a36);padding:7px 10px;white-space:nowrap}.action:hover{background:var(--pl-surface-hover,#e9eedf)}.restore{background:var(--pl-accent,#20251c);color:var(--pl-accent-text,#fff)}.restore:hover{background:var(--pl-accent-hover,#37412c)}.close{border:0;background:transparent;font-size:20px;color:var(--pl-muted,#909687);padding:1px 5px}.retry{background:var(--pl-highlight,#fff0d6);color:var(--pl-highlight-text,#8a5e12)}[hidden]{display:none!important}
       @media(max-width:520px){:host{right:12px;bottom:12px}.bar{gap:8px;padding:10px}.mark{display:none}.info{min-width:100px;max-width:150px}.action{padding:6px 8px}.detail{max-width:140px}}
       @media(prefers-reduced-motion:reduce){.fill{transition:none}}
     `;
@@ -97,6 +99,7 @@
     bar.append(mark, info, actions);
     shadow.append(style, bar);
     document.documentElement.append(host);
+    globalThis.PageLingoThemes?.applyTheme(host, settings.theme);
     toolbar = { title, detail, progress, fill, mode, retry };
   }
 
@@ -411,6 +414,7 @@
   async function start(nextSettings) {
     restorePage();
     const myEpoch = epoch;
+    const myThemeRevision = themeRevision;
     if (!nextSettings) {
       try {
         const response = await send({ type: 'GET_PUBLIC_SETTINGS' });
@@ -426,6 +430,7 @@
       }
     }
     settings = { ...nextSettings };
+    if (myThemeRevision !== themeRevision) settings.theme = latestTheme;
     sessionId = `pagelingo-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     makeToolbar();
     if (settings.ready === false) {
@@ -443,6 +448,13 @@
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     if (!message || typeof message.type !== 'string') return;
     switch (message.type) {
+      case 'PAGELINGO_THEME_CHANGED':
+        themeRevision++;
+        latestTheme = message.theme;
+        settings.theme = latestTheme;
+        if (host) globalThis.PageLingoThemes?.applyTheme(host, latestTheme);
+        respond({ ok: true });
+        break;
       case 'PAGELINGO_START':
         void start(message.settings);
         respond({ ok: true, status: status() });

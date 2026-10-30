@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PageLingo · 全界面主题预览</title>
+  <style>
+    *{box-sizing:border-box}html{background:#e8ece6}body{width:1440px;margin:0;color:#263025;font:14px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}.gallery-head{padding:28px 30px 24px;background:#f7f9f5;border-bottom:1px solid #cfd8ca}.gallery-kicker{font-size:10px;letter-spacing:2px;color:#697b5c}h1{margin:6px 0;font-size:27px;font-weight:650;letter-spacing:-.6px}.gallery-description{margin:6px 0 14px;color:#607358;font-size:12px}.gallery-controls{display:flex;align-items:center;gap:12px;font-size:12px}.gallery-controls a,.gallery-controls button{font:inherit;display:inline-block;background:white;color:#435c35;border:1px solid #cad7c0;border-radius:6px;padding:6px 11px;text-decoration:none;cursor:pointer}#status{margin-left:auto;color:#587046}#status.error{color:#a14032}#gallery{display:flex;flex-direction:column;gap:24px;padding:24px 0}.gallery-panel{margin:0;background:#f4f6f1}.gallery-panel h2{height:48px;margin:0;padding:11px 22px;font-size:14px;font-weight:600;border-bottom:1px solid #d6dfd0;display:flex;align-items:center;gap:12px}.gallery-panel h2 span{font-size:10px;font-weight:400;color:#708365;letter-spacing:.4px}.gallery-stage{width:1440px;display:flex;align-items:flex-start;justify-content:center;overflow:hidden;background:#e8ece6}.gallery-stage iframe{display:block;flex-shrink:0;border:0;background:white;transform-origin:top center}.gallery-panel[data-id="06-popup"] .gallery-stage{padding:24px 0}.gallery-panel.error h2{color:#a14032}.gallery-error{white-space:pre-wrap;margin:0;padding:20px 28px;color:#a14032;background:#fff3ed;font-size:12px}body.overview #gallery{display:grid;grid-template-columns:708px 708px;gap:24px;align-items:start}body.overview .gallery-panel{width:708px}body.overview .gallery-stage{width:708px;position:relative}body.overview .gallery-stage iframe{position:absolute;left:50%;transform-origin:top left}body.overview .gallery-panel h2{font-size:12px;padding-left:18px}body.overview .gallery-panel h2 span{font-size:9px}details{margin:0 24px 24px;font-size:12px;color:#63745a}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8faf5;padding:18px;font:11px/1.6 monospace}#errors:empty{display:none}
+  </style>
+</head>
+<body>
+  <header class="gallery-head">
+    <div class="gallery-kicker">PAGELINGO / THEME GALLERY / DEMO</div>
+    <h1 id="gallery-title">全界面主题预览</h1>
+    <p class="gallery-description">正式页面与正式浮窗的真实渲染。所有密钥、用量、网页内容和翻译结果均为演示数据，不连接 AI 服务，不读取或改动已安装扩展的配置。</p>
+    <div class="gallery-controls"><a id="detail-link" href="?theme=midnight">逐页详细预览</a><a id="overview-link" href="?theme=midnight&layout=overview">全部页面总览</a><button id="download-geometry" type="button">下载裁切坐标</button><span id="status" role="status">正在加载正式界面…</span></div>
+  </header>
+  <main id="gallery"></main>
+  <p id="errors" class="gallery-error"></p>
+  <details><summary>截图裁切坐标（CSS 像素）</summary><pre id="geometry"></pre></details>
+  <script src="theme-gallery.js"></script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import { LANGUAGES, STORAGE_KEY, getSettings, getProvider, isProviderReady, extensionAvailable } from './lib/config.js';
+import { applyTheme } from './lib/theme.js';
 
 const $ = id => document.getElementById(id);
 const LIMIT = 5000;
@@ -55,6 +56,7 @@ function render() {
   $('manual-result-note').classList.toggle('stale', stale);
 }
 function renderSettings() {
+  applyTheme(document.documentElement, settings.theme);
   const provider = getProvider(settings), ready = isProviderReady(settings);
   $('manual-provider').textContent = ready ? provider.name : '先配置 AI 服务';
   $('manual-model').textContent = settings.providers[provider.id]?.model || '请选择翻译模型';
@@ -175,6 +177,7 @@ window.addEventListener('pagehide', () => { closed = true; cancelRequest(); });
 if (extensionAvailable) chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[STORAGE_KEY]) void refreshSettings();
 });
+if (!extensionAvailable) window.addEventListener('storage', event => { if (event.key === STORAGE_KEY) void refreshSettings(); });
 $('manual-preview').hidden = extensionAvailable;
 await refreshSettings();
 render();

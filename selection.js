@@ -12,6 +12,7 @@
   let nextNodeId = 0;
   let settings = { selectionEnabled: false, targetLanguage: 'zh-CN', providerName: 'AI', ready: false };
   let revision = 0;
+  let themeRevision = 0;
   let epoch = 0;
   let listening = false;
   let pointerSelecting = false;
@@ -23,6 +24,12 @@
   let lastKey = '';
 
   function send(message) { return chrome.runtime.sendMessage(message); }
+  function applyTheme() {
+    if (!host) return;
+    const themes = globalThis.PageLingoThemes;
+    if (themes?.applyTheme) themes.applyTheme(host, settings.theme);
+    else host.setAttribute('data-theme', 'midnight');
+  }
   function element(tag, attributes = {}, text) {
     const node = document.createElement(tag);
     for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
@@ -120,11 +127,12 @@
   }
   function createCard(selection) {
     host = element('div', { 'data-pagelingo': 'selection', 'data-state': 'loading' });
+    applyTheme();
     shadow = host.attachShadow({ mode: 'closed' });
     const style = element('style');
     style.textContent = `
-      :host{all:initial;position:fixed;z-index:2147483647;display:block;width:min(360px,calc(100vw - 24px));font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;font-size:13px;line-height:1.6;color:#283020;color-scheme:light}
-      *{box-sizing:border-box}.card{border:1px solid #dfe6d5;border-radius:14px;background:#fff;box-shadow:0 12px 45px #1d2c132b;overflow:hidden}.head{display:flex;align-items:center;gap:8px;padding:12px 14px 9px}.mark{display:grid;place-items:center;width:25px;height:25px;flex-shrink:0;border-radius:8px;background:#c7ef65;color:#354524;font-size:13px;font-weight:700}.title{font-size:11px;font-weight:650;flex:1}.close{border:0;background:none;color:#99a18e;font-size:21px;line-height:1;padding:4px;cursor:pointer}.source{font-size:11px;color:#8f9982;white-space:pre-wrap;overflow-wrap:anywhere;max-height:57px;overflow:auto;margin:0 15px 10px;padding-bottom:9px;border-bottom:1px solid #edf0e7}.result{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.75;padding:0 15px 13px;max-height:min(280px,45vh);overflow:auto;user-select:text}.result.loading{color:#8c9b77}.result.error{color:#aa694e}.foot{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#f8faf4;border-top:1px solid #edf0e7;padding:8px 14px;font-size:9px;color:#97a186}.meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.retry{font:inherit;font-size:10px;color:#698441;background:#edf4df;border:0;border-radius:5px;padding:4px 9px;cursor:pointer}button:focus-visible{outline:2px solid #7b9a4c;outline-offset:2px}[hidden]{display:none!important}
+      :host{all:initial;position:fixed;z-index:2147483647;display:block;width:min(360px,calc(100vw - 24px));font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;font-size:13px;line-height:1.6;color:var(--pl-text,#283020);color-scheme:var(--pl-color-scheme,light)}
+      *{box-sizing:border-box}.card{border:1px solid var(--pl-line,#dfe6d5);border-radius:14px;background:var(--pl-surface,#fff);box-shadow:0 12px 45px var(--pl-shadow,#1d2c132b);overflow:hidden}.head{display:flex;align-items:center;gap:8px;padding:12px 14px 9px}.mark{display:grid;place-items:center;width:25px;height:25px;flex-shrink:0;border-radius:8px;background:var(--pl-accent,#c7ef65);color:var(--pl-accent-text,#354524);font-size:13px;font-weight:700}.title{font-size:11px;font-weight:650;flex:1}.close{border:0;background:none;color:var(--pl-muted,#99a18e);font-size:21px;line-height:1;padding:4px;cursor:pointer}.source{font-size:11px;color:var(--pl-muted,#8f9982);white-space:pre-wrap;overflow-wrap:anywhere;max-height:57px;overflow:auto;margin:0 15px 10px;padding-bottom:9px;border-bottom:1px solid var(--pl-line,#edf0e7)}.result{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.75;padding:0 15px 13px;max-height:min(280px,45vh);overflow:auto;user-select:text}.result.loading{color:var(--pl-muted,#8c9b77)}.result.error{color:var(--pl-danger,#aa694e)}.foot{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--pl-surface-soft,#f8faf4);border-top:1px solid var(--pl-line,#edf0e7);padding:8px 14px;font-size:9px;color:var(--pl-muted,#97a186)}.meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.retry{font:inherit;font-size:10px;color:var(--pl-highlight-text,#698441);background:var(--pl-highlight,#edf4df);border:0;border-radius:5px;padding:4px 9px;cursor:pointer}button:focus-visible{outline:2px solid var(--pl-focus,#7b9a4c);outline-offset:2px}[hidden]{display:none!important}
     `;
     style.textContent += '\n.card{display:flex;flex-direction:column;max-height:calc(100vh - 24px)}.head,.source,.foot{flex-shrink:0}.result{min-height:0;flex-shrink:1}';
     const box = element('div', { class: 'card', role: 'dialog', 'aria-label': 'PageLingo 划词翻译' });
@@ -237,11 +245,17 @@
     settings = { ...settings, ...next, selectionEnabled: next?.selectionEnabled === true };
     const changed = ['selectionEnabled', 'targetLanguage', 'providerName', 'model', 'ready'].some(key => previous[key] !== settings[key]);
     if (changed) { dismiss(); lastKey = ''; }
+    applyTheme();
     setListening(settings.selectionEnabled);
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
-    if (message?.type === 'PAGELINGO_SELECTION_SETTINGS') {
+    if (message?.type === 'PAGELINGO_THEME_CHANGED') {
+      themeRevision++;
+      settings = { ...settings, theme: message.theme };
+      applyTheme();
+      respond({ ok: true });
+    } else if (message?.type === 'PAGELINGO_SELECTION_SETTINGS') {
       revision++;
       applySettings(message.settings || {});
       respond({ ok: true, enabled: settings.selectionEnabled });
@@ -250,7 +264,9 @@
     }
   });
   const initialRevision = revision;
+  const initialThemeRevision = themeRevision;
   void send({ type: 'GET_PUBLIC_SETTINGS' }).then(response => {
-    if (response?.ok && revision === initialRevision) applySettings(response.settings || {});
+    if (response?.ok && revision === initialRevision) applySettings({ ...response.settings,
+      ...(themeRevision !== initialThemeRevision ? { theme: settings.theme } : {}) });
   }).catch(() => {});
 })();

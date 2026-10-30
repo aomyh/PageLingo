@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PageLingo · 主题浏览器检查</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;padding:26px;background:#f3f5ef;color:#283020;font:14px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}main{max-width:1500px;margin:auto}h1{margin:0 0 10px;font-size:25px}p{color:#66765a;margin:0 0 18px}button{font:inherit;border:0;border-radius:7px;background:#c7ef65;padding:10px 18px;color:#344821;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.controls{display:flex;align-items:center;gap:16px;margin:18px 0}.grid{display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:20px;align-items:start}.panel{background:white;border:1px solid #dde5d4;border-radius:10px;padding:18px;margin-bottom:20px}.panel h2{font-size:15px;margin:0 0 12px}.panel iframe{display:block;width:100%;border:1px solid #e2e8da;border-radius:8px;background:white}#options-frame{height:850px}#popup-frame{width:372px;height:602px}#content-frame{height:700px}.pass{color:#52732d}.fail{color:#ac5b3f}ol{padding-left:22px;font-size:12px}li{margin:7px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.7 monospace;color:#6d7a60}#error{color:#a64430}#summary{font-weight:650}@media(max-width:1000px){.grid{grid-template-columns:1fr}.panel iframe{min-width:370px}.panel{overflow:auto}}
+  </style>
+</head>
+<body><main>
+  <h1>外观主题 · 真实 DOM 集成检查</h1>
+  <p>加载正式配置页、弹窗和网页浮窗。接口、密钥与翻译结果均为明确的模拟数据，不连接 AI 服务，不读取或修改真实配置。</p>
+  <div class="controls"><button id="run" type="button">运行主题检查</button><span id="summary" role="status">等待运行</span></div>
+  <div class="grid">
+    <div><section class="panel"><h2>正式配置页 · 模拟设置</h2><iframe id="options-frame" title="主题配置页"></iframe></section><section class="panel"><h2>普通网页 · 主题仅作用于翻译浮窗</h2><iframe id="content-frame" title="网页浮窗主题检查"></iframe></section></div>
+    <div><section class="panel"><h2>正式弹窗 · 370 × 600</h2><iframe id="popup-frame" title="扩展弹窗主题检查"></iframe></section><section class="panel"><h2>检查结果</h2><ol id="results"></ol><pre id="metrics"></pre><pre id="error"></pre></section></div>
+  </div>
+</main><script src="theme-browser.js"></script></body>
+</html>

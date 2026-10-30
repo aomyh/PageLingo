@@ -301,7 +301,7 @@ test('manual entry injects an in-page panel, coalesces clicks and never creates 
   const results = await Promise.all(Array.from({ length: 3 }, () => message({ type: 'OPEN_TEXT_TRANSLATOR', tabId: 7 })));
   assert.ok(results.every(result => result.ok && result.tabId === 7 && result.mode === 'in-page'));
   assert.equal(count(), before + 1);
-  assert.deepEqual(selectionInjections.at(-1), { target: { tabId: 7 }, files: ['manual-panel.js'] });
+  assert.deepEqual(selectionInjections.at(-1), { target: { tabId: 7 }, files: ['lib/themes.js', 'manual-panel.js'] });
   assert.deepEqual(await message({ type: 'OPEN_TEXT_TRANSLATOR', tabId: 7 }), { ok: true, tabId: 7, mode: 'in-page' });
   assert.equal(count(), before + 2, 'reinjection asks the isolated script to focus its existing panel');
   assert.equal(createdWindows.length, 0);
@@ -347,6 +347,51 @@ test('manual settings expose public data and an opaque changing revision to cont
   assert.equal((await message({ type: 'MANUAL_OPEN_OPTIONS' }, foreign)).ok, false);
   assert.deepEqual(await message({ type: 'MANUAL_OPEN_OPTIONS' }, content), { ok: true });
   assert.equal(openedOptions, true);
+});
+
+test('theme changes broadcast only public colors and preserve a manual revision and active request', { timeout: 5000 }, async () => {
+  const previous = structuredClone(settings);
+  const theme = previous.theme === 'midnight' ? 'ocean' : 'midnight';
+  const first = await message({ type: 'GET_MANUAL_SETTINGS' }, content);
+  let calls = 0, signal, finish;
+  globalThis.fetch = async (_url, options) => {
+    calls++; signal = options.signal;
+    return new Promise((resolve, reject) => {
+      finish = () => resolve(translationResponse(options, '切换主题后仍正常完成'));
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    });
+  };
+  const task = message(manual('theme-preserves-manual', 'Pending manual source across theme changes'), content);
+  try {
+    await until(() => Boolean(finish));
+    const before = selectionMessages.length;
+    await chrome.storage.local.set({ [settingsKey]: { ...previous, theme } });
+    await until(() => selectionMessages.slice(before).some(entry => entry.value.type === 'PAGELINGO_THEME_CHANGED' && entry.value.theme === theme));
+    await until(() => selectionMessages.slice(before).some(entry => entry.value.type === 'PAGELINGO_SELECTION_SETTINGS' && entry.value.settings.theme === theme));
+    const broadcasts = selectionMessages.slice(before);
+    const themeMessages = broadcasts.filter(entry => entry.value.type === 'PAGELINGO_THEME_CHANGED');
+    assert.deepEqual(themeMessages, [{ id: 7, value: { type: 'PAGELINGO_THEME_CHANGED', theme } }]);
+    for (const secret of [previous.providers.custom.apiKey, 'apiKey', 'providers', 'baseUrl', 'https://api.example.com', 'Pending manual source']) {
+      assert.equal(JSON.stringify(broadcasts).includes(secret), false, `${secret} cannot enter a webpage broadcast`);
+    }
+    const current = await message({ type: 'GET_MANUAL_SETTINGS' }, content);
+    assert.equal(current.settings.theme, theme);
+    assert.equal(current.configurationRevision, first.configurationRevision, 'palette preferences cannot invalidate a manual result');
+    assert.equal(signal.aborted, false, 'a theme storage event does not cancel the current fetch');
+    assert.equal(calls, 1, 'a theme update cannot start a replacement AI request');
+    assert.equal((await message(manual('theme-preserves-manual', 'Duplicate must not fetch'), content)).code, 'REQUEST_IN_PROGRESS');
+    finish();
+    const result = await task;
+    assert.equal(result.ok, true);
+    assert.equal(result.text, '切换主题后仍正常完成');
+    assert.equal(calls, 1);
+    assert.equal((await message({ type: 'GET_MANUAL_SETTINGS' }, content)).configurationRevision, first.configurationRevision);
+  } finally {
+    if (finish) finish();
+    else await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'theme-preserves-manual' }, content);
+    await task;
+    await chrome.storage.local.set({ [settingsKey]: previous });
+  }
 });
 
 test('manual input accepts isolated content scripts, validates Unicode limits and reads only saved config', async () => {

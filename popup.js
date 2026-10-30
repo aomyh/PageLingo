@@ -1,5 +1,6 @@
 import { LANGUAGES, STORAGE_KEY, getSettings, saveSettings, isProviderReady, getProvider, extensionAvailable } from './lib/config.js';
 import { requestSelectionPermission } from './lib/permissions.js';
+import { applyTheme } from './lib/theme.js';
 
 const $ = (id) => document.getElementById(id);
 let settings;
@@ -35,6 +36,7 @@ function supportedUrl(url = '') {
 function publicSettings() {
   const provider = getProvider(settings);
   return {
+    theme: settings.theme,
     targetLanguage: settings.targetLanguage,
     displayMode: settings.displayMode,
     concurrency: settings.concurrency,
@@ -50,6 +52,7 @@ function publicSettings() {
 }
 
 function renderSettings() {
+  applyTheme(document.documentElement, settings.theme);
   const provider = getProvider(settings);
   const ready = isProviderReady(settings);
   $('provider-name').textContent = provider.name;
@@ -226,7 +229,7 @@ async function startTranslation() {
       const status = await chrome.tabs.sendMessage(tab.id, { type: 'PAGELINGO_STATUS' });
       injected = Boolean(status?.ok);
     } catch { /* Inject only when this page has not been activated. */ }
-    if (!injected) await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    if (!injected) await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['lib/themes.js', 'content.js'] });
     const result = await chrome.tabs.sendMessage(tab.id, { type: 'PAGELINGO_START', settings: publicSettings() });
     if (result?.ok === false) throw new Error(result.error || '无法开始翻译，请刷新网页后重试。');
     languageChanged = false;
@@ -356,5 +359,6 @@ async function init() {
   } catch { message('无法读取插件配置，请重新打开插件后重试。', true); }
 }
 
+if (!extensionAvailable) window.addEventListener('storage', event => { if (event.key === STORAGE_KEY) void refreshStoredSettings(); });
 window.addEventListener('pagehide', () => clearInterval(polling));
 init();

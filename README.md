@@ -2,11 +2,78 @@
 
 原生 Chrome Manifest V3 扩展。配置你自己的 AI API Key，点击扩展图标即可翻译当前网页。无需构建、无需服务器、无需安装运行依赖。
 
+## 界面预览
+
+午夜深色为默认主题。下面逐页展示全部配置页面、插件弹窗与翻译浮窗；截图使用正式界面和演示数据，不包含真实 API Key，也不会向 AI 服务发送请求。
+
+### 午夜深色 · 全部页面详细截图
+
+**01 · AI 服务商**
+
+![午夜深色：AI 服务商与密钥配置](screenshots/themes/midnight/01-providers.png)
+
+**02 · 翻译偏好**
+
+![午夜深色：目标语言、阅读模式与划词开关](screenshots/themes/midnight/02-preferences.png)
+
+**03 · 速度与缓存**
+
+![午夜深色：并发、批次与本地缓存配置](screenshots/themes/midnight/03-performance.png)
+
+**04 · 外观主题**
+
+![午夜深色：五套外观主题选择](screenshots/themes/midnight/04-appearance.png)
+
+**05 · 用量统计**
+
+![午夜深色：用量汇总、趋势与模型明细](screenshots/themes/midnight/05-usage.png)
+
+**06 · 插件弹窗**
+
+![午夜深色：浏览器插件弹窗](screenshots/themes/midnight/06-popup.png)
+
+**07 · 手动翻译浮窗**
+
+![午夜深色：网页内可拖动的手动翻译浮窗](screenshots/themes/midnight/07-manual-floating.png)
+
+**08 · 划词翻译**
+
+![午夜深色：选中文字后的划词译文](screenshots/themes/midnight/08-selection.png)
+
+**09 · 整页翻译工具栏**
+
+![午夜深色：网页翻译进度、阅读模式与恢复原文](screenshots/themes/midnight/09-page-toolbar.png)
+
+工具栏近景：
+
+![午夜深色：整页翻译工具栏近景](screenshots/themes/midnight/09-page-toolbar-detail.png)
+
+**10 · 独立翻译兼容页**
+
+保留的独立翻译页面仅用于兼容；当前「手动翻译」入口在原网页显示浮窗，不会打开新标签页。
+
+![午夜深色：独立翻译兼容页面](screenshots/themes/midnight/10-translator.png)
+
+### 其他主题 · 全部页面拼图
+
+每张总览图都包含上面十个界面。点击缩略图可打开整张高清拼图；可在配置页的「外观主题」中切换。
+
+<table>
+  <tr>
+    <td align="center"><a href="screenshots/themes/sage/overview.png"><img src="screenshots/themes/sage/overview-thumb.png" width="420" alt="草木绿主题全部十个界面拼图缩略图"></a><br><strong>草木绿 · 全部页面</strong></td>
+    <td align="center"><a href="screenshots/themes/ocean/overview.png"><img src="screenshots/themes/ocean/overview-thumb.png" width="420" alt="海盐蓝主题全部十个界面拼图缩略图"></a><br><strong>海盐蓝 · 全部页面</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="screenshots/themes/lavender/overview.png"><img src="screenshots/themes/lavender/overview-thumb.png" width="420" alt="柔雾紫主题全部十个界面拼图缩略图"></a><br><strong>柔雾紫 · 全部页面</strong></td>
+    <td align="center"><a href="screenshots/themes/sand/overview.png"><img src="screenshots/themes/sand/overview-thumb.png" width="420" alt="暖纸棕主题全部十个界面拼图缩略图"></a><br><strong>暖纸棕 · 全部页面</strong></td>
+  </tr>
+</table>
+
 ## 安装到 Chrome
 
 1. 在 Chrome 地址栏打开 `chrome://extensions`。
 2. 打开右上角「开发者模式」。
-3. 点击「加载已解压的扩展程序」，选择当前 `PageLingo` 目录（包含 `manifest.json` 的这一层）。也可以使用 `npm run package` 生成的 `dist/PageLingo-1.3.2` 目录。
+3. 点击「加载已解压的扩展程序」，选择当前 `PageLingo` 目录（包含 `manifest.json` 的这一层）。也可以使用 `npm run package` 生成的 `dist/PageLingo-1.4.0` 目录。
 4. 在打开的配置页选择服务商，填写 API Key 和模型，点击「保存并使用」。Chrome 会只请求该 API 域名的访问权限。
 5. 可点击「测试连接」查看示例译文和本次实际耗时。之后打开一个普通网页，点击扩展图标 →「翻译当前页面」。
 
@@ -33,6 +100,12 @@
 手动翻译使用已保存的 AI 服务和模型，不依赖划词开关。点击扩展图标时，通过已有的 `activeTab` 与 `scripting` 权限在当前网页显示浮窗，无需为此开启所有网站访问权限；仍需先在配置页保存 Key、模型并授权访问该 AI 服务。目标语言可在浮窗中单独选择，不修改整页翻译偏好。修改输入或语言会停止旧请求，旧译文会标记为需要重新翻译，防止把旧结果当作新结果。
 
 翻译会复用本地缓存、后台并发限制与用量统计。输入内容在你点击翻译或使用翻译快捷键后，才会发给所选 AI 服务；不会自动读取剪贴板或当前网页。关闭浮窗会取消尚未完成的请求，已经发送到服务商的请求仍可能产生用量。Chrome 内部页、扩展商店和部分内置阅读器禁止注入，入口会提示在普通网页打开后粘贴内容，不会自动打开其他页面。
+
+## 外观主题
+
+在配置页左侧打开「外观主题」，可选择草木绿、海盐蓝、柔雾紫、暖纸棕或午夜深色。点击主题预览卡立即生效并自动保存，配置页、插件弹窗、整页翻译工具栏、划词翻译与手动翻译浮窗会同步更新。
+
+主题只保存在当前浏览器，不修改网页原有的配色。切换时保留浮窗输入、已有译文和进行中的翻译，不覆盖 API Key 或未保存的表单。新安装及没有主题字段的旧配置默认使用午夜深色；已保存的主题选择保持不变，无需重新配置服务商。
 
 ## 用量统计
 
@@ -102,6 +175,10 @@ npm run package # 生成解压目录和 ZIP 安装包
 `tests/manual-browser.html` 使用正式手动翻译界面与模拟接口，检查输入限制、翻译、取消、迟到响应、复制和窗口持久显示，不使用真实 Key。
 
 `tests/manual-floating-browser.html` 在普通网页直接运行正式浮窗脚本，检查不打开窗口或标签页、重复唤起、拖动、关闭与取消，以及翻译和输入状态保留。
+
+`tests/theme-browser.html` 使用正式配置页、弹窗和网页浮窗，检查五套主题的保存与同步、深色对比度、弹窗布局，以及切换时输入、译文与进行中请求的保留。测试只使用模拟配置与翻译，不连接 AI 服务。
+
+`tests/theme-gallery.html?theme=midnight` 加载同一主题的全部十个正式界面，页面中的「下载裁切坐标」可导出布局信息。通过浏览器导出完整长图后，使用 `scripts/compose-theme-screenshots.py` 和 Pillow 裁切逐页截图、生成其他主题的全部页面拼图；截图与统计均为演示数据。
 
 ## API 参考
 

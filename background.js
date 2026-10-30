@@ -3,6 +3,7 @@ import { translateBatch, requestTranslations, validateEndpoint, TranslationError
 import { cacheStats, clearTranslationCache } from './lib/cache.js';
 import { createSelectionManager, publicSettings, supportsSelection } from './lib/selection.js';
 import { recordUsage, getUsageStats, clearUsageStats } from './lib/usage.js';
+import { normalizeTheme } from './lib/theme.js';
 
 const sessions = new Map();
 const cancelled = new Map();
@@ -13,6 +14,21 @@ const waiting = [];
 let activeRequests = 0;
 const manualRevisionPrefix = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let manualRevisionCounter = 0;
+let themeBroadcastEpoch = 0;
+let themeBroadcastQueue = Promise.resolve();
+
+function broadcastTheme() {
+  const epoch = ++themeBroadcastEpoch;
+  themeBroadcastQueue = themeBroadcastQueue.catch(() => {}).then(async () => {
+    if (epoch !== themeBroadcastEpoch) return;
+    const settings = await getSettings();
+    const tabs = await chrome.tabs.query({});
+    if (epoch !== themeBroadcastEpoch) return;
+    await Promise.allSettled(tabs.filter(tab => Number.isInteger(tab.id)).map(tab => chrome.tabs.sendMessage(tab.id, {
+      type: 'PAGELINGO_THEME_CHANGED', theme: settings.theme,
+    })));
+  }).catch(() => {});
+}
 
 function abortSelectionSessions() {
   for (const [key, session] of sessions) if (session.kind === 'selection') {
@@ -41,6 +57,7 @@ chrome.permissions.onRemoved?.addListener(() => reconcileSelection());
 chrome.storage.onChanged?.addListener((changes, area) => {
   if (area !== 'local' || !changes[STORAGE_KEY]) return;
   const change = changes[STORAGE_KEY];
+  if (normalizeTheme(change.oldValue?.theme) !== normalizeTheme(change.newValue?.theme)) broadcastTheme();
   if (manualConfigurationSignature(change.oldValue) !== manualConfigurationSignature(change.newValue)) manualRevisionCounter++;
   if (changes[STORAGE_KEY].newValue?.selectionEnabled !== true) abortSelectionSessions();
   reconcileSelection({ injectExisting: changes[STORAGE_KEY].newValue?.selectionEnabled === true && changes[STORAGE_KEY].oldValue?.selectionEnabled !== true });
@@ -130,7 +147,7 @@ function openManualPanel(tabId) {
       try {
         // The injected script reuses its existing panel and never opens a tab or
         // browser window. activeTab grants this one user-initiated injection.
-        await chrome.scripting.executeScript({ target: { tabId }, files: ['manual-panel.js'] });
+        await chrome.scripting.executeScript({ target: { tabId }, files: ['lib/themes.js', 'manual-panel.js'] });
       } catch {
         throw new TranslationError('此页面无法显示翻译浮窗，请在普通网页打开后粘贴内容。', 'PANEL_UNAVAILABLE');
       }

@@ -35,12 +35,14 @@ async function popup({ enabled = false, extension = true, permit = true, workerE
   let storageListener, closes = 0, manualShows = 0;
   const context = vm.createContext({
     URL, console,
+    applyTheme: (target, theme) => { if (target) target.theme = theme || 'midnight'; },
     LANGUAGES: [{ code: 'zh-CN', name: '简体中文' }], STORAGE_KEY: key, extensionAvailable: extension,
     getSettings: async () => { log.push('getSettings'); return structuredClone(stored); },
     saveSettings: async value => { log.push('saveSettings'); stored = structuredClone(value); return structuredClone(stored); },
     getProvider: () => ({ id: 'deepseek', name: 'DeepSeek', abbr: 'D', model: 'deepseek-flash' }),
     isProviderReady: () => false,
     document: {
+      documentElement: new Element('html'),
       getElementById: id => elements[id], createElement: () => new Element(),
       querySelectorAll: selector => selector === '[data-mode]' ? [elements['mode-bilingual'], elements['mode-translated']] : [],
     },

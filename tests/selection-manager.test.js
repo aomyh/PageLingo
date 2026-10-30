@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { createSelectionManager, publicSettings, SELECTION_ORIGINS, supportsSelection } from '../lib/selection.js';
 import { defaultSettings } from '../lib/config.js';
 
-function harness({ enabled = false, granted = true, register, read, query, inject } = {}) {
+function harness({ enabled = false, granted = true, registered = [], register, read, query, inject } = {}) {
   let settings = { ...defaultSettings(), selectionEnabled: enabled };
   settings.providers.deepseek.apiKey = 'dummy-never-broadcast-this-key';
   let permission = granted;
-  let scripts = [];
+  let scripts = structuredClone(registered);
   let disables = 0;
   const registrations = [], removals = [], injections = [], messages = [], permissions = [];
   const api = {
@@ -42,12 +42,36 @@ test('enabling requires broad webpage grants and registers future pages plus exi
   assert.deepEqual(page.permissions[0], { origins: SELECTION_ORIGINS });
   assert.equal(page.settings.selectionEnabled, true);
   assert.equal(page.registrations.length, 1);
-  assert.deepEqual(page.registrations[0][0], { id: 'pagelingo-selection', matches: SELECTION_ORIGINS, js: ['selection.js'], runAt: 'document_idle', allFrames: false, persistAcrossSessions: true });
+  assert.deepEqual(page.registrations[0][0], { id: 'pagelingo-selection', matches: SELECTION_ORIGINS, js: ['lib/themes.js', 'selection.js'], runAt: 'document_idle', allFrames: false, persistAcrossSessions: true });
   assert.deepEqual(page.injections.map(value => value.target.tabId), [1, 2]);
   assert.equal(page.messages.length, 5, 'live settings also reach prior scripts when their URLs are unavailable');
   assert.equal(JSON.stringify(page.messages).includes('dummy-never-broadcast'), false);
   await page.manager.reconcile();
   assert.equal(page.registrations.length, 1, 'reconciliation must not duplicate the registered script');
+});
+
+test('startup upgrades an older selection registration to load themes first for new and existing pages', async () => {
+  const page = harness({ enabled: true, registered: [{
+    id: 'pagelingo-selection', matches: SELECTION_ORIGINS, js: ['selection.js'],
+    runAt: 'document_idle', allFrames: false, persistAcrossSessions: true,
+  }] });
+  const result = await page.manager.reconcile({ injectExisting: true });
+  assert.equal(result.selectionEnabled, true);
+  assert.equal(page.settings.selectionEnabled, true, 'upgrading assets preserves the enabled preference');
+  assert.equal(page.disables, 0);
+  assert.deepEqual(page.removals, [{ ids: ['pagelingo-selection'] }]);
+  assert.deepEqual(page.registrations, [[{
+    id: 'pagelingo-selection', matches: SELECTION_ORIGINS, js: ['lib/themes.js', 'selection.js'],
+    runAt: 'document_idle', allFrames: false, persistAcrossSessions: true,
+  }]]);
+  assert.deepEqual(page.injections, [
+    { target: { tabId: 1 }, files: ['lib/themes.js', 'selection.js'] },
+    { target: { tabId: 2 }, files: ['lib/themes.js', 'selection.js'] },
+  ], 'already-open supported pages receive the helper before the guarded content script');
+  assert.equal(JSON.stringify(page.messages).includes('dummy-never-broadcast-this-key'), false);
+  await page.manager.reconcile();
+  assert.equal(page.removals.length, 1, 'a current registration is not removed again');
+  assert.equal(page.registrations.length, 1, 'the upgrade is idempotent');
 });
 
 test('denied optional permissions do not persist or register an enabled preference', async () => {
