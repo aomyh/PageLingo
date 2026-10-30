@@ -4,11 +4,11 @@
 Requires Pillow. Geometry comes from tests/theme-gallery.html and uses document
 CSS coordinates; ``scale`` converts them to screenshot pixels. Accepted JSON:
 
-    {"theme": "midnight", "scale": 2, "panels": [
+    {"theme": "ocean", "scale": 2, "panels": [
       {"id": "01-providers", "rect": {"x": 0, "y": 48,
                                      "width": 1440, "height": 1250}}, ...]}
 
-A shared manifest can instead contain {"themes": {"midnight": {...}, ...}}.
+A shared manifest can instead contain {"themes": {"ocean": {...}, ...}}.
 Each entry may specify an image path relative to --input-dir. Without
 --manifest, the script looks for a JSON sidecar beside each gallery PNG.
 For fixed pixel crops, omit the manifest and pass ten --rect x,y,width,height
@@ -18,11 +18,12 @@ Examples:
     python3 scripts/compose-theme-screenshots.py \
         --input-dir /tmp/pagelingo-theme-gallery
     python3 scripts/compose-theme-screenshots.py \
-        --image /tmp/midnight.png --manifest /tmp/midnight.json --theme midnight
+        --image /tmp/ocean.png --manifest /tmp/ocean.json --theme ocean
 
-Midnight produces ten separate full-resolution page images and an additional
-toolbar close-up when captureRect is available. The other themes
-produce overview.png (2400 px wide) and overview-thumb.png (1200 px wide).
+Every theme produces overview.png (2400 px wide) and overview-thumb.png
+(1200 px wide). Ocean also produces ten separate full-resolution page images
+and an additional toolbar close-up when captureRect is available. Use
+--detail-theme to select another detailed theme, repeating it for multiple themes.
 No screenshot is stretched. Each overview panel fits a bounded area while
 preserving its aspect ratio, keeping compact interfaces readable as well.
 """
@@ -83,6 +84,7 @@ def parse_args():
     parser.add_argument("--manifest", type=Path, help="One gallery geometry JSON or a themes map")
     parser.add_argument("--image", type=Path, help="Process one image; requires --theme")
     parser.add_argument("--theme", action="append", choices=THEMES, help="Limit to one or more themes")
+    parser.add_argument("--detail-theme", action="append", choices=THEMES, help="Also save individual full-resolution pages; defaults to ocean; repeat for multiple themes")
     parser.add_argument("--scale", type=float, help="Override CSS-to-image scale from the manifest")
     parser.add_argument("--rect", action="append", default=[], metavar="X,Y,W,H", help="Static crop in page order, without a geometry manifest")
     parser.add_argument("--width", type=int, default=2400, help="Overview image width")
@@ -271,7 +273,7 @@ def save_theme(args, theme, image_path, geometry):
     destination = args.output_dir / theme
     destination.mkdir(parents=True, exist_ok=True)
     output = []
-    if theme == "midnight":
+    if theme in (args.detail_theme or ["ocean"]):
         for page_id, _, crop in crops:
             path = destination / f"{page_id}.png"
             crop.save(path, optimize=True)
@@ -280,15 +282,14 @@ def save_theme(args, theme, image_path, geometry):
             path = destination / f"{page_id}.png"
             crop.save(path, optimize=True)
             output.append({"file": str(path), "width": crop.width, "height": crop.height})
-    else:
-        overview = compose_overview(theme, crops, args)
-        path = destination / "overview.png"
-        overview.save(path, optimize=True)
-        thumb_size = (args.thumb_width, round(overview.height * args.thumb_width / overview.width))
-        thumbnail = overview.resize(thumb_size, Image.Resampling.LANCZOS)
-        thumb_path = destination / "overview-thumb.png"
-        thumbnail.save(thumb_path, optimize=True)
-        output.extend(({"file": str(path), "width": overview.width, "height": overview.height}, {"file": str(thumb_path), "width": thumbnail.width, "height": thumbnail.height}))
+    overview = compose_overview(theme, crops, args)
+    path = destination / "overview.png"
+    overview.save(path, optimize=True)
+    thumb_size = (args.thumb_width, round(overview.height * args.thumb_width / overview.width))
+    thumbnail = overview.resize(thumb_size, Image.Resampling.LANCZOS)
+    thumb_path = destination / "overview-thumb.png"
+    thumbnail.save(thumb_path, optimize=True)
+    output.extend(({"file": str(path), "width": overview.width, "height": overview.height}, {"file": str(thumb_path), "width": thumbnail.width, "height": thumbnail.height}))
     return {"theme": theme, "source": str(image_path), "outputs": output}
 
 

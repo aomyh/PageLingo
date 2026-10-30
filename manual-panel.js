@@ -21,6 +21,17 @@
     if (text !== undefined) result.textContent = text;
     return result;
   };
+  function renderTranslation(target, text) {
+    target.textContent = '';
+    // Keep every original line break and space in text nodes; the badge is CSS only.
+    for (const part of text.split(/(\r\n|[\r\n\u2028\u2029])/)) {
+      if (!part) continue;
+      if (!part.trim()) { target.append(document.createTextNode(part)); continue; }
+      const paragraph = document.createElement('span');
+      paragraph.className = 'translation-paragraph'; paragraph.textContent = part;
+      target.append(paragraph);
+    }
+  }
   const style = node('style');
   style.textContent = `
     :host{all:initial;display:block;position:fixed;z-index:2147483647;inset:auto;margin:0;padding:0;border:0;background:transparent;box-sizing:border-box;overflow:visible;color:var(--pl-text,#283020);color-scheme:var(--pl-color-scheme,light);font:13px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
@@ -30,7 +41,7 @@
     .body{display:flex;flex-direction:column;flex:1;min-height:0;gap:12px;padding:15px 17px 12px;overflow:auto}.intro{flex-shrink:0}.intro h1{font-size:18px;font-weight:650;letter-spacing:-.4px;line-height:1.4;margin:0 0 4px}.intro h1 span{color:var(--pl-success,#8cab50)}.intro p{font-size:10px;color:var(--pl-muted,#98a18c);margin:0}
     .configuration{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0;min-width:0}.provider{display:flex;align-items:center;gap:6px;max-width:52%;min-width:0;padding:0;border:0;background:none;text-align:left;color:var(--pl-text,#62764c)}.provider-dot{height:6px;width:6px;border-radius:50%;background:var(--pl-subtle,#bbc4af);flex-shrink:0}.provider.ready .provider-dot{background:var(--pl-success,#8bb34e)}.provider-copy{display:flex;flex-direction:column;gap:2px;min-width:0}.provider strong{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.provider-copy>span{font-size:9px;color:var(--pl-subtle,#a0ac90);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.provider-arrow{font-size:11px;color:var(--pl-muted,#96a581)}.language{display:flex;align-items:center;gap:7px;flex-shrink:0}.language label{font-size:10px;color:var(--pl-muted,#9ba68e)}.language-select{position:relative;display:flex;width:116px;flex-shrink:0}.language select{appearance:none;-webkit-appearance:none;width:100%;height:32px;padding:5px 36px 5px 12px;border:1px solid var(--pl-line,#e1e7d7);border-radius:7px;background:var(--pl-surface,#fff);color:var(--pl-text,#566b40);font-size:10px;cursor:pointer}.language-chevron{position:absolute;right:calc(12px + 1px);top:50%;transform:translateY(-50%);width:12px;height:12px;color:var(--pl-muted,#6e7b5d);pointer-events:none}
     .panel{display:flex;flex-direction:column;min-height:86px;min-width:0;border:1px solid var(--pl-line,#e1e7d8);border-radius:9px;background:var(--pl-surface,#fff);overflow:hidden;flex:1}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:35px;padding:8px 11px 6px;flex-shrink:0}.panel-head label,.panel-head h2{font-size:10px;font-weight:600;color:var(--pl-text,#62754d);margin:0;white-space:nowrap}.panel-head label>span,.panel-head h2>span{font-size:8px;font-weight:400;color:var(--pl-subtle,#a5b296);margin-left:4px}.panel-head h2>span.stale{color:var(--pl-danger,#ad8658)}.tools{display:flex;align-items:center;gap:9px}.count{font-size:8px;color:var(--pl-subtle,#a9b59b);white-space:nowrap;font-variant-numeric:tabular-nums}.count.exceeded{color:var(--pl-danger,#b47450)}.text-button{border:0;padding:0;background:none;color:var(--pl-muted,#90a078);font-size:9px;white-space:nowrap}.text-button:hover:not(:disabled){color:var(--pl-text,#4b692f)}.text-button:disabled{color:var(--pl-subtle,#c2cbb6)}
-    textarea{display:block;width:100%;min-height:0;flex:1;resize:none;border:0;background:none;padding:1px 11px 10px;color:var(--pl-text,#435435);font-size:12px;line-height:1.8;outline-offset:-3px;overflow-y:auto}textarea::placeholder{font-size:11px;color:var(--pl-subtle,#b4bfaa)}.actions{display:flex;gap:8px;align-items:center;flex-shrink:0}.translate{display:flex;align-items:center;justify-content:center;gap:8px;flex:1;min-width:0;height:37px;padding:0 13px;border:0;border-radius:8px;background:var(--pl-accent,#c7ef65);color:var(--pl-accent-text,#354b22);font-size:11px;font-weight:600}.translate:hover:not(:disabled){background:var(--pl-accent-hover,#bce55a)}.translate:disabled{background:var(--pl-surface-soft,#e7eddd);color:var(--pl-muted,#9eac8d)}.shortcut{margin-left:auto;font-weight:400;font-size:8px;opacity:.6}.cancel{height:37px;padding:0 11px;border:1px solid var(--pl-line,#e2e8d7);border-radius:8px;background:var(--pl-surface-soft,#eef2e7);color:var(--pl-muted,#7f9169);font-size:10px}.result{background:var(--pl-highlight,#f5f8ef);border-color:var(--pl-highlight-line,#e3ebd8)}.output{white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;flex:1;min-height:0;padding:1px 11px 10px;overflow-y:auto;user-select:text;color:var(--pl-highlight-text,#486236);font-size:12px;line-height:1.8}.output[data-empty=true]{color:var(--pl-subtle,#b0bda2);font-size:11px}.output[aria-busy=true]{opacity:.6}
+    textarea{display:block;width:100%;min-height:0;flex:1;resize:none;border:0;background:none;padding:1px 11px 10px;color:var(--pl-text,#435435);font-size:12px;line-height:1.8;outline-offset:-3px;overflow-y:auto}textarea::placeholder{font-size:11px;color:var(--pl-subtle,#b4bfaa)}.actions{display:flex;gap:8px;align-items:center;flex-shrink:0}.translate{display:flex;align-items:center;justify-content:center;gap:8px;flex:1;min-width:0;height:37px;padding:0 13px;border:0;border-radius:8px;background:var(--pl-accent,#c7ef65);color:var(--pl-accent-text,#354b22);font-size:11px;font-weight:600}.translate:hover:not(:disabled){background:var(--pl-accent-hover,#bce55a)}.translate:disabled{background:var(--pl-surface-soft,#e7eddd);color:var(--pl-muted,#9eac8d)}.shortcut{margin-left:auto;font-weight:400;font-size:8px;opacity:.6}.cancel{height:37px;padding:0 11px;border:1px solid var(--pl-line,#e2e8d7);border-radius:8px;background:var(--pl-surface-soft,#eef2e7);color:var(--pl-muted,#7f9169);font-size:10px}.result{background:var(--pl-highlight,#f5f8ef);border-color:var(--pl-highlight-line,#e3ebd8)}.output{white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;flex:1;min-height:0;padding:1px 11px 10px;overflow-y:auto;user-select:text;color:var(--pl-highlight-text,#486236);font-size:12px;line-height:1.8}.output:not([data-empty=true]):not([aria-busy=true]){font-size:14px;font-weight:500;line-height:1.85;color:var(--pl-translation,#0e7490)}.translation-paragraph{display:inline}.output:not([data-empty=true]):not([aria-busy=true]) .translation-paragraph::before{content:'译';display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;margin-inline-end:6px;border-radius:4px;background:var(--pl-translation,#0e7490);color:var(--pl-surface,#fff);font-size:10px;font-weight:700;line-height:1;vertical-align:baseline;pointer-events:none;user-select:none;-webkit-user-select:none}.output[data-empty=true]{color:var(--pl-subtle,#b0bda2);font-size:11px}.output[aria-busy=true]{opacity:.6}
     .foot{display:flex;flex-direction:column;gap:3px;min-height:29px;flex-shrink:0;padding-right:11px}.status{font-size:9px;line-height:1.6;color:var(--pl-muted,#91a07e);margin:0;overflow-wrap:anywhere}.status.error{color:var(--pl-danger,#ad7855)}.hint{font-size:8px;line-height:1.6;color:var(--pl-subtle,#b1bca3)}.resize{position:absolute;right:0;bottom:0;width:23px;height:23px;border:0;background:transparent;color:var(--pl-muted,#a0b385);cursor:nwse-resize;touch-action:none;font-size:15px;padding:0}.resize:hover{color:var(--pl-text,#597a35)}.compact .intro p{display:none}.compact .body{gap:9px;padding-top:11px}.compact .intro h1{font-size:16px}.compact .panel{min-height:75px}
     @media(forced-colors:active){.card,.panel{border:1px solid CanvasText}.mark{border:1px solid CanvasText}.provider-dot{background:CanvasText}.language select{appearance:auto;-webkit-appearance:auto;padding-right:12px}.language-chevron{display:none}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
   `;
@@ -86,7 +97,7 @@
   card.append(head, body, resize); shadow.append(style, card);
 
   let settings = null, revision = '', settingsEpoch = 0;
-  let currentTheme = 'midnight', themeEpoch = 0;
+  let currentTheme = 'ocean', themeEpoch = 0;
   let active = null, result = null, copying = false, closed = false, languageEdited = false, languageInitialized = false;
   let sequence = 0, gesture = null, refreshTimer;
   const bounds = { left: 0, top: 0, width: 420, height: 590 };
@@ -95,7 +106,7 @@
   const inputLength = () => [...$('manual-input').value].length;
   function applyTheme(theme) {
     const themes = globalThis.PageLingoThemes;
-    currentTheme = themes?.normalizeTheme?.(theme) || 'midnight';
+    currentTheme = themes?.normalizeTheme?.(theme) || 'ocean';
     if (themes?.applyTheme) themes.applyTheme(host, currentTheme);
     else host.setAttribute('data-theme', currentTheme);
   }
@@ -140,7 +151,7 @@
     const expectedThemeEpoch = themeEpoch;
     if (!available) {
       settings = { targetLanguage: 'zh-CN', activeProvider: 'preview', providerName: '未配置', model: '加载扩展后可用', ready: false,
-        theme: document.documentElement.dataset.theme || 'midnight' };
+        theme: document.documentElement.dataset.theme || 'ocean' };
       revision = 'preview';
     } else {
       try {
@@ -198,7 +209,7 @@
       if (request.revision !== revision) { cancelRequest('翻译服务已更新，请重新翻译。'); return; }
       result = { source: request.source, language: request.language, revision: request.revision, text: response.text, cached: response.cached === true,
         providerId: response.providerId || settings.activeProvider, model: response.model || settings.model };
-      $('manual-output').textContent = result.text; $('manual-output').dataset.empty = 'false'; $('manual-output').scrollTop = 0;
+      renderTranslation($('manual-output'), result.text); $('manual-output').dataset.empty = 'false'; $('manual-output').scrollTop = 0;
       status(result.cached ? '翻译完成 · 已复用本地缓存。' : `翻译完成 · 耗时 ${((performance.now() - request.started) / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} 秒。`);
     } catch (error) { if (active === request && !closed) status(error?.message || '翻译失败，请重试。', true); }
     finally { if (active === request) { active = null; render(); } }

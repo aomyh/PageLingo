@@ -96,7 +96,7 @@
     frame.contentDocument.open(); frame.contentDocument.write('<!doctype html>' + doc.documentElement.outerHTML); frame.contentDocument.close();
     await until(() => frame.contentWindow.__themeMock && frame.contentDocument.documentElement.dataset.theme, `${file} 主题初始化`);
     await until(() => !frame.contentDocument.fonts || frame.contentDocument.fonts.status === 'loaded', `${file} 字体加载`);
-    if (file === 'options.html') await until(() => frame.contentDocument.querySelectorAll('[data-theme-id]').length === 5, '5 个主题卡片');
+    if (file === 'options.html') await until(() => frame.contentDocument.querySelectorAll('[data-theme-id]').length === ids.length, `${ids.length} 个主题卡片`);
     else await until(() => frame.contentDocument.getElementById('provider-name')?.textContent === 'DeepSeek', '弹窗配置加载');
   }
   async function appendScript(frame, path) {
@@ -174,8 +174,8 @@
       const originalText = contentWindow.getComputedStyle(contentDoc.body).color;
       const baseSettings = { ...structuredClone(hub.settings), theme: undefined };
       const baselinePopup = popupGeometry(popupFrame), colors = [], metrics = [];
-      check(!optionsDoc.getElementById('view-appearance').hidden && optionsDoc.querySelectorAll('[data-theme-id]').length === 5, '配置页提供 5 套可选择的外观主题');
-      check(optionsDoc.documentElement.dataset.theme === 'midnight' && popupDoc.documentElement.dataset.theme === 'midnight' && host.dataset.theme === 'midnight', '未保存主题的配置在配置页、弹窗与浮窗中默认使用午夜深色');
+      check(!optionsDoc.getElementById('view-appearance').hidden && optionsDoc.querySelectorAll('[data-theme-id]').length === ids.length, '配置页提供 5 套可选择的外观主题');
+      check(optionsDoc.documentElement.dataset.theme === 'ocean' && popupDoc.documentElement.dataset.theme === 'ocean' && host.dataset.theme === 'ocean', '未保存主题的配置在配置页、弹窗与浮窗中默认使用海盐蓝');
       optionsDoc.getElementById('api-key').value = 'MOCK_UNSAVED_DRAFT_NOT_REAL';
       optionsDoc.getElementById('api-key').dispatchEvent(new optionsFrame.contentWindow.Event('input', { bubbles: true }));
       for (const theme of ids) {
@@ -191,12 +191,12 @@
         colors.push(backgroundOf(popupDoc.body));
         metrics.push(`${theme} · popup ${geometry.width.toFixed(1)} × ${geometry.height.toFixed(1)} · 写入 ${hub.writes.length - before} 次`);
       }
-      check(new Set(colors).size === 5, '5 套主题具有不同的整体背景配色');
+      check(new Set(colors).size === ids.length, '5 套主题具有不同的整体背景配色');
       await loadPage(optionsFrame, 'options.html', '#appearance'); optionsDoc = optionsFrame.contentDocument;
       check(optionsDoc.documentElement.dataset.theme === 'midnight' && optionsDoc.querySelector('[data-theme-id="midnight"]').getAttribute('aria-pressed') === 'true', '重新打开配置页后恢复已保存的主题');
       hub.updateTheme('not-a-theme');
-      await until(() => optionsDoc.documentElement.dataset.theme === 'midnight' && popupDoc.documentElement.dataset.theme === 'midnight', '无效主题回落');
-      check(optionsDoc.querySelector('[data-theme-id="midnight"]').getAttribute('aria-pressed') === 'true', '旧数据或无效主题安全回落为午夜深色');
+      await until(() => optionsDoc.documentElement.dataset.theme === 'ocean' && popupDoc.documentElement.dataset.theme === 'ocean', '无效主题回落');
+      check(optionsDoc.querySelector('[data-theme-id="ocean"]').getAttribute('aria-pressed') === 'true', '旧数据或无效主题安全回落为海盐蓝');
       hub.updateTheme('ocean');
       await until(() => optionsDoc.documentElement.dataset.theme === 'ocean' && popupDoc.documentElement.dataset.theme === 'ocean' && host.dataset.theme === 'ocean', '外部设置同步');
       check(contentWindow.getComputedStyle(contentDoc.body).backgroundColor === originalBackground && contentWindow.getComputedStyle(contentDoc.body).color === originalText && !contentDoc.documentElement.dataset.theme, '主题只作用于翻译浮窗，不修改网页本身的颜色或主题标记');

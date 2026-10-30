@@ -40,6 +40,7 @@ function harness(translate = async request => ({ ok: true, text: `译文：${req
   document.documentElement = new FakeNode(1, 'html'); document.body = new FakeNode(1, 'body');
   document.append(document.documentElement); document.documentElement.append(document.body);
   document.createElement = tag => new FakeNode(1, tag);
+  document.createTextNode = text => new FakeNode(3, null, text);
   document.createTreeWalker = root => { const nodes = descendants(root).filter(node => node.nodeType === 3); let index = 0; return { nextNode: () => nodes[index++] || null }; };
   const window = new FakeNode(0);
   window.innerWidth = 1000; window.innerHeight = 800;
@@ -90,6 +91,22 @@ test('disabled by default, then translates selected text without changing origin
   assert.equal(descendants(page.host.shadow).some(node => node.tagName === 'IMG'), false);
   assert.equal(text.nodeValue, 'Original link text'); assert.equal(link.childNodes[0], text);
   assert.equal(page.host.shadow.textContent.includes('本地缓存'), true);
+});
+
+test('paragraph markers preserve exact translated text and every original line separator', async () => {
+  const translated = '  第一段内容。\r\n续行内容。\n\n \t\r第二段 <img src=x>\u2028最后一段。\n';
+  const page = harness(async () => ({ ok: true, text: translated }));
+  await flush(); page.settings(enabled);
+  const text = page.text('Translate multiple paragraphs');
+  page.document.body.append(page.node('p', text)); page.select(text);
+  page.document.fire('mouseup', { button: 0 }); page.advance(); await flush();
+  const result = descendants(page.host.shadow).find(node => node.className === 'result');
+  assert.equal(result.textContent, translated, 'rendered text remains suitable for native selection and copy');
+  const paragraphs = result.childNodes.filter(node => node.className === 'translation-paragraph');
+  assert.equal(paragraphs.length, 4, 'only nonempty lines receive a marker wrapper');
+  assert.equal(paragraphs.every(node => node.tagName === 'SPAN'), true);
+  assert.equal(descendants(result).some(node => node.tagName === 'IMG'), false, 'model markup stays inert text');
+  assert.equal(result.childNodes.filter(node => node.nodeType === 3).map(node => node.nodeValue).join(''), '\r\n\n\n \t\r\u2028\n');
 });
 
 test('live disable clears pending debounce, aborts active session, removes listeners and rejects late results', async () => {

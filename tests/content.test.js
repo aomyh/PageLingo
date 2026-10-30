@@ -32,6 +32,7 @@ class FakeNode {
   }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
+  removeAttribute(name) { this.attributes.delete(name); }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
   append(...nodes) { for (const node of nodes) { node.remove(); node.parentNode = this; this.childNodes.push(node); } }
   insertBefore(node, before) {
@@ -59,6 +60,12 @@ class FakeNode {
     return true;
   }
   getBoundingClientRect() { return { top: this.top, bottom: this.top + 30 }; }
+  compareDocumentPosition(other) {
+    if (this === other) return 0;
+    let root = this; while (root.parentNode) root = root.parentNode;
+    const nodes = allNodes(root), first = nodes.indexOf(this), second = nodes.indexOf(other);
+    return second < 0 ? 1 : second < first ? 2 : 4;
+  }
   attachShadow() { this.shadow = new FakeNode(11); this.shadow.parentNode = this; return this.shadow; }
 }
 
@@ -88,9 +95,9 @@ function harness(translate) {
   const context = vm.createContext({
     document,
     window: { innerHeight: 900, addEventListener() {} },
-    Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
+    Node: { TEXT_NODE: 3, ELEMENT_NODE: 1, DOCUMENT_POSITION_PRECEDING: 2 },
     NodeFilter: { SHOW_TEXT: 4 },
-    getComputedStyle: node => ({ display: node.style.display || 'block', visibility: node.style.visibility || 'visible', opacity: node.style.opacity || '1', contentVisibility: node.style.contentVisibility || 'visible' }),
+    getComputedStyle: node => ({ display: node.style.display || 'block', visibility: node.style.visibility || 'visible', opacity: node.style.opacity || '1', contentVisibility: node.style.contentVisibility || 'visible', backgroundColor: node.style.backgroundColor || 'rgba(0, 0, 0, 0)', color: node.style.color || 'rgb(32, 32, 32)' }),
     MutationObserver: class { constructor(callback) { mutationCallback = callback; } observe() {} disconnect() {} },
     chrome: { runtime: {
       onMessage: { addListener(callback) { listener = callback; } },
@@ -118,6 +125,35 @@ const defaults = { targetLanguage: 'zh-CN', displayMode: 'bilingual', concurrenc
 const automatic = async message => ({ ok: true, translations: [...message.items].reverse().map(item => ({ id: item.id, text: `译：${item.text}`, cached: false })) });
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function allNodes(root) { return [root, ...root.childNodes.flatMap(allNodes)]; }
+
+test('translation ink adapts to the website surface while preserving its original colors and content', async () => {
+  const cases = [
+    { name: 'light page with gray text', background: 'rgb(248, 249, 251)', text: 'rgb(98, 107, 115)', ink: '#0e7490' },
+    { name: 'dark page with gray text', background: 'rgb(21, 27, 35)', text: 'rgb(196, 203, 212)', ink: '#7dd3fc' },
+    { name: 'transparent paragraph over a dark body', body: 'rgb(21, 27, 35)', text: 'rgb(196, 203, 212)', ink: '#7dd3fc' },
+    { name: 'translucent surface over a dark body', body: 'rgb(21, 27, 35)', background: 'rgba(255, 255, 255, 0.08)', text: 'rgb(196, 203, 212)', ink: '#7dd3fc' },
+    { name: 'image-only dark page uses existing light ink as fallback', text: 'rgb(230, 237, 243)', ink: '#7dd3fc' },
+    { name: 'opaque light surface wins over inherited light ink', background: 'rgb(255, 255, 255)', text: 'rgb(230, 237, 243)', ink: '#0e7490' },
+  ];
+  for (const example of cases) {
+    const page = harness(automatic), original = page.text('The translated paragraph should be distinct from the original gray website text.');
+    const paragraph = page.node('p', original);
+    paragraph.style.color = example.text;
+    if (example.background) paragraph.style.backgroundColor = example.background;
+    if (example.body) page.document.body.style.backgroundColor = example.body;
+    const originalStyle = { ...paragraph.style };
+    page.document.body.append(paragraph);
+    page.message('PAGELINGO_START', { settings: { ...defaults, theme: 'midnight' } });
+    await flush();
+    const translation = allNodes(paragraph).find(node => node.getAttribute('data-pagelingo') === 'translation');
+    assert.ok(translation, example.name);
+    assert.equal(translation.style.cssText.match(/(?:^|;)color:([^;]+);/)?.[1], example.ink, example.name);
+    assert.deepEqual(paragraph.style, originalStyle, 'translation colors must stay scoped to the inserted text');
+    assert.equal(original.nodeValue, 'The translated paragraph should be distinct from the original gray website text.');
+    page.message('PAGELINGO_RESTORE');
+    assert.deepEqual(paragraph.childNodes, [original]);
+  }
+});
 
 test('bilingual and translated modes preserve links, whitespace and original node identities; restore is exact', async () => {
   const page = harness(automatic);
@@ -149,6 +185,56 @@ test('bilingual and translated modes preserve links, whitespace and original nod
   assert.deepEqual(anchor.childNodes, [world]);
   assert.equal(paragraph.textContent, ' Hello world!');
   assert.equal(page.message('PAGELINGO_STATUS').status.state, 'idle');
+});
+
+test('one marker per paragraph follows source order across out-of-order replies and mode changes', async () => {
+  const pending = [];
+  const page = harness(request => {
+    const value = deferred(); pending.push({ request, ...value }); return value.promise;
+  });
+  const first = page.text('First fragment '.repeat(35)), second = page.text('Linked fragment '.repeat(35));
+  const link = page.node('a', second), paragraph = page.node('p', first, link);
+  const otherText = page.text('A separate paragraph.'), other = page.node('p', otherText);
+  page.document.body.append(paragraph, other);
+  page.message('PAGELINGO_START', { settings: defaults });
+  assert.equal(pending.length, 2);
+  const complete = entry => entry.resolve({ ok: true, translations: entry.request.items.map(item => ({ id: item.id, text: `Result for ${item.id}`, cached: false })) });
+  const markers = node => allNodes(node).filter(child => child.getAttribute('data-pagelingo-marker') !== null);
+  complete(pending[1]); await flush();
+  assert.equal(markers(paragraph).length, 1);
+  assert.equal(markers(paragraph)[0].parentNode, link, 'a later fragment can be marked while the earlier one is pending');
+  complete(pending[0]); await flush();
+  assert.equal(markers(paragraph).length, 1);
+  assert.equal(markers(paragraph)[0], first.nextSibling, 'the marker moves to the first source fragment in document order');
+  assert.equal(markers(other).length, 1, 'another paragraph has its own marker');
+  assert.equal(paragraph.textContent.includes('译'), false, 'generated badges are not part of the selectable DOM text');
+  page.message('PAGELINGO_MODE', { mode: 'translated' });
+  assert.equal(markers(paragraph).length, 1);
+  assert.equal(markers(paragraph)[0].textContent, '', 'translation-only markers are empty decorative nodes');
+  assert.equal(first.parentNode, paragraph); assert.equal(second.parentNode, link);
+  page.message('PAGELINGO_MODE', { mode: 'bilingual' });
+  assert.equal(markers(paragraph).length, 1);
+  page.message('PAGELINGO_RESTORE');
+  assert.deepEqual(paragraph.childNodes, [first, link]); assert.deepEqual(link.childNodes, [second]);
+  assert.deepEqual(other.childNodes, [otherText]);
+  assert.equal(allNodes(page.document.documentElement).some(node => node.getAttribute('data-pagelingo') === 'translation-style'), false);
+});
+
+test('removing the marked source reassigns its paragraph badge without leaving an orphan translation', async () => {
+  const page = harness(automatic), first = page.text('First source fragment.'), second = page.text('Linked source fragment.');
+  const link = page.node('a', second), paragraph = page.node('p', first, link);
+  page.document.body.append(paragraph);
+  page.message('PAGELINGO_START', { settings: { ...defaults, translateDynamic: true } }); await flush();
+  const oldTranslation = first.nextSibling;
+  assert.equal(oldTranslation.getAttribute('data-pagelingo-marker'), '');
+  first.remove();
+  page.mutation([{ type: 'childList', target: paragraph, addedNodes: [], removedNodes: [first] }]);
+  assert.equal(oldTranslation.isConnected, false);
+  assert.equal(second.nextSibling.getAttribute('data-pagelingo-marker'), '');
+  assert.equal(allNodes(paragraph).filter(node => node.getAttribute('data-pagelingo-marker') !== null).length, 1);
+  page.message('PAGELINGO_RESTORE');
+  assert.deepEqual(paragraph.childNodes, [link], 'restoring does not bring back source text removed by the website');
+  assert.deepEqual(link.childNodes, [second]);
 });
 
 test('late model responses cannot insert translations after restore or overwrite newly changed page text', async () => {

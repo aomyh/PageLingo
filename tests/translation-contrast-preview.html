@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PageLingo · 译文标识预览</title>
+  <style>
+    *{box-sizing:border-box}html{background:#e9ede7}body{margin:0;width:1440px;color:#263326;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}header{padding:20px 24px;background:#f8faf6;border-bottom:1px solid #d2dccb}header h1{margin:0 0 5px;font-size:25px;font-weight:650;letter-spacing:-.5px}header p{margin:0;color:#697c60;font-size:12px}.controls{display:flex;align-items:center;gap:16px;margin-top:12px}button{padding:6px 12px;background:white;border:1px solid #c9d5c0;border-radius:6px;color:#4f6942;font:inherit;font-size:12px;cursor:pointer}#status{font-size:12px;color:#617857}#status.error{color:#a14531}main{padding:16px 12px;display:flex;flex-direction:column;gap:20px}.comparison{background:white;border:1px solid #d3ddcd;border-radius:8px;overflow:hidden}.comparison h2{height:42px;display:flex;align-items:center;padding:0 16px;margin:0;font-size:14px;font-weight:600;border-bottom:1px solid #dde4d7}.columns{display:grid;grid-template-columns:700px 700px;gap:14px}.column h3{height:36px;margin:0;padding:7px 15px;font-size:12px;font-weight:550;color:#7b8773;background:#f5f7f2}.column.after h3{background:#e6efd9;color:#496a31}.column iframe{width:700px;display:block;border:0;background:#f3f1e9}.comparison[data-kind="page"] iframe{height:650px}.comparison[data-kind="selection"] iframe{height:400px}.comparison[data-kind="manual"] iframe{height:640px}#errors{margin:0 12px 16px;white-space:pre-wrap;color:#a14531;font:12px/1.6 monospace}#errors:empty{display:none}details{margin:0 12px 16px;font-size:12px;color:#6b7b61}pre{white-space:pre-wrap;font:11px/1.6 monospace;background:#f7faf3;padding:16px}
+  </style>
+</head>
+<body>
+  <header><h1>译文标识预览</h1><p>相同青蓝译文 · 每段前增加一个小“译”标识 · 左侧隐藏标识，右侧使用当前真实代码 · 全部为演示内容，不连接 AI 服务</p><div class="controls"><button id="download" type="button">下载裁切坐标</button><span id="status" role="status">正在加载 8 个真实渲染画面…</span></div></header>
+  <main id="comparisons"></main><p id="errors"></p>
+  <details><summary>截图裁切坐标（CSS 像素）</summary><pre id="geometry"></pre></details>
+  <details><summary>实际标识样式、正文对比度与复制检查</summary><pre id="style-evidence"></pre></details>
+  <script src="translation-contrast-preview.js"></script>
+</body>
+</html>

@@ -120,6 +120,16 @@
       mock.answer = '<img src=x onerror="window.__unexpectedScript=1">安全文本'; el('manual-translate').click();
       await until(() => text('manual-output') === mock.answer, '安全显示模型输出');
       check(!el('manual-output').querySelector('img') && !child.__unexpectedScript, '模型返回 HTML 作为纯文字显示，不执行代码');
+      mock.answer = '第一段内容。\n续行内容。\n\n第二段内容。'; el('manual-translate').click();
+      await until(() => text('manual-output') === mock.answer && !el('manual-copy').disabled, '多段结果');
+      check(el('manual-output').querySelectorAll('.translation-paragraph').length === 3 && text('manual-output') === mock.answer, '每个非空段落有独立标识，空行和原始译文完全保留');
+      const paragraphRange = doc.createRange(); paragraphRange.selectNodeContents(el('manual-output'));
+      const paragraphSelection = child.getSelection(); paragraphSelection.removeAllRanges(); paragraphSelection.addRange(paragraphRange);
+      check(paragraphSelection.toString() === mock.answer, '原生选择只包含原始译文，不包含装饰标识'); paragraphSelection.removeAllRanges();
+      const copiedBeforeParagraphs = mock.copied.length; el('manual-copy').click();
+      await until(() => mock.copied.length === copiedBeforeParagraphs + 1, '复制多段结果');
+      check(mock.copied.at(-1) === mock.answer, '复制多段译文保留换行，不写入标识');
+
       mock.cached = true; mock.answer = '缓存的模拟译文'; el('manual-translate').click();
       await until(() => text('manual-output') === mock.answer, '缓存返回');
       check(text('manual-result-note').includes('缓存'), '缓存命中有清楚的结果反馈'); mock.cached = false;

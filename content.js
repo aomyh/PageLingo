@@ -30,6 +30,9 @@
   let state = 'idle';
   let scannedCharacters = 0;
   let queueNeedsSort = true;
+  let markerGroups = new WeakMap();
+  let markerStyle = null;
+  const PARAGRAPH_TAGS = new Set('P LI DD DT H1 H2 H3 H4 H5 H6 BLOCKQUOTE FIGCAPTION CAPTION TD TH'.split(' '));
   window.addEventListener('scroll', () => { queueNeedsSort = true; }, { passive: true });
 
   function send(message) {
@@ -240,28 +243,137 @@
     applyMode(record);
   }
 
+  function rgbColor(value) {
+    const match = typeof value === 'string' && value.match(/^rgba?\(([^)]+)\)$/i);
+    if (!match) return null;
+    const parts = match[1].trim().split(/[\s,/]+/);
+    const channels = parts.slice(0, 3).map(part => Number.parseFloat(part) * (part.endsWith('%') ? 2.55 : 1));
+    const alpha = parts[3] === undefined ? 1 : Number.parseFloat(parts[3]) / (parts[3].endsWith('%') ? 100 : 1);
+    if (channels.length !== 3 || !channels.every(Number.isFinite) || !Number.isFinite(alpha)) return null;
+    return [...channels.map(channel => Math.min(255, Math.max(0, channel))), Math.min(1, Math.max(0, alpha))];
+  }
+
+  function luminance(channels) {
+    const linear = channels.map(channel => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  }
+
+  function translationColor(node) {
+    // Read the website's own surface, independently of the extension theme.
+    // Composite translucent ancestors so a transparent paragraph on a dark
+    // page receives light ink rather than the light-page translation color.
+    const background = [0, 0, 0];
+    let remaining = 1, originalColor;
+    for (let parent = node.parentElement; parent && remaining > 0.001; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      originalColor ||= rgbColor(style.color);
+      const surface = rgbColor(style.backgroundColor);
+      if (!surface) continue;
+      const contribution = surface[3] * remaining;
+      for (let index = 0; index < 3; index++) background[index] += surface[index] * contribution;
+      remaining *= 1 - surface[3];
+    }
+    // Gradient/image-only backgrounds have no opaque computed surface. The
+    // page's original ink provides a useful fallback for its light/dark intent.
+    const fallback = originalColor && luminance(originalColor.slice(0, 3)) > 0.45 ? [21, 27, 35] : [255, 255, 255];
+    for (let index = 0; index < 3; index++) background[index] += fallback[index] * remaining;
+    const surface = luminance(background);
+    const contrast = ink => (Math.max(ink, surface) + 0.05) / (Math.min(ink, surface) + 0.05);
+    return contrast(luminance([14, 116, 144])) >= contrast(luminance([125, 211, 252])) ? '#0e7490' : '#7dd3fc';
+  }
+
+  function paragraphGroup(node) {
+    const start = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    for (let parent = start; parent; parent = parent.parentElement) if (PARAGRAPH_TAGS.has(parent.tagName)) return parent;
+    return start;
+  }
+
+  function ensureMarkerStyle() {
+    if (markerStyle?.isConnected) return;
+    markerStyle = element('style', { 'data-pagelingo': 'translation-style' });
+    markerStyle.textContent = `
+      [data-pagelingo="translation"][data-pagelingo-marker]::before,
+      [data-pagelingo="translation-marker"][data-pagelingo-marker]::before{
+        content:"译";display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
+        width:17px;height:17px;margin-inline-end:6px;border:0;border-radius:4px;
+        background:var(--pagelingo-marker-color);color:var(--pagelingo-marker-ink);
+        font:700 10px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;
+        vertical-align:0.08em;white-space:nowrap;user-select:none;-webkit-user-select:none;pointer-events:none;
+      }
+    `;
+    document.documentElement.append(markerStyle);
+  }
+
+  function syncMarkerGroup(group) {
+    const members = markerGroups.get(group);
+    if (!members) return;
+    let first;
+    for (const record of [...members]) {
+      if (record.obsolete || !record.node.isConnected) {
+        record.translationNode?.remove(); members.delete(record); record.markerGroup = null;
+        continue;
+      }
+      if (!record.translationNode?.isConnected) continue;
+      if (!first || (first.node.compareDocumentPosition(record.node) & Node.DOCUMENT_POSITION_PRECEDING)) first = record;
+    }
+    for (const record of members) {
+      if (record === first) record.translationNode.setAttribute('data-pagelingo-marker', '');
+      else record.translationNode?.removeAttribute('data-pagelingo-marker');
+    }
+  }
+
+  function attachMarker(record) {
+    const group = paragraphGroup(record.node);
+    if (record.markerGroup !== group) {
+      const previous = record.markerGroup;
+      if (previous) { markerGroups.get(previous)?.delete(record); syncMarkerGroup(previous); }
+      record.markerGroup = group;
+      if (!markerGroups.has(group)) markerGroups.set(group, new Set());
+      markerGroups.get(group).add(record);
+    }
+    syncMarkerGroup(group);
+  }
+
+  function removeTranslation(record) {
+    record.translationNode?.remove();
+    const group = record.markerGroup;
+    if (group) { markerGroups.get(group)?.delete(record); record.markerGroup = null; syncMarkerGroup(group); }
+  }
+
   function applyMode(record) {
-    if (!record.rendered || record.obsolete || !record.node.isConnected) return;
+    if (!record.rendered) return;
+    if (record.obsolete || !record.node.isConnected) { removeTranslation(record); return; }
     if (record.node.nodeValue !== record.original && record.node.nodeValue !== record.lastApplied) {
       record.obsolete = true;
-      record.translationNode?.remove();
+      removeTranslation(record);
       return;
     }
+    ensureMarkerStyle();
+    record.translationNode ||= element('span', { lang: settings.targetLanguage || 'zh-CN' });
+    const color = translationColor(record.node);
+    const markerColors = `--pagelingo-marker-color:${color};--pagelingo-marker-ink:${color === '#0e7490' ? '#fff' : '#10232f'};`;
     if (settings.displayMode === 'translated') {
       record.lastApplied = record.translation;
       record.node.nodeValue = record.translation;
-      record.translationNode?.remove();
+      record.translationNode.textContent = '';
+      record.translationNode.setAttribute('data-pagelingo', 'translation-marker');
+      record.translationNode.setAttribute('aria-hidden', 'true');
+      record.translationNode.style.cssText = `${markerColors}display:inline;font-size:inherit;line-height:inherit;`;
+      record.node.parentNode.insertBefore(record.translationNode, record.node);
     } else {
       record.node.nodeValue = record.original;
       record.lastApplied = record.original;
-      if (!record.translationNode) {
-        record.translationNode = element('span', { 'data-pagelingo': 'translation', lang: settings.targetLanguage || 'zh-CN' });
-        record.translationNode.textContent = record.translation.trim();
-        const long = record.original.trim().length > 65;
-        record.translationNode.style.cssText = `display:${long ? 'block' : 'inline'};${long ? 'margin:0.35em 0 0.55em;padding-left:0.7em;border-left:2px solid #a6cd5c;' : 'margin-left:0.45em;'}color:inherit;opacity:0.8;font-size:0.95em;line-height:1.65;overflow-wrap:anywhere;font-style:normal;`;
-      }
-      if (!record.translationNode.isConnected) record.node.parentNode.insertBefore(record.translationNode, record.node.nextSibling);
+      record.translationNode.setAttribute('data-pagelingo', 'translation');
+      record.translationNode.removeAttribute('aria-hidden');
+      record.translationNode.textContent = record.translation.trim();
+      const long = record.original.trim().length > 65;
+      record.translationNode.style.cssText = `${markerColors}display:${long ? 'block' : 'inline'};${long ? 'margin:0.45em 0 0.6em;padding:0.3em 0.7em;border-left:3px solid color-mix(in srgb,currentColor 55%,transparent);border-radius:0 6px 6px 0;background:color-mix(in srgb,currentColor 4%,transparent);' : 'margin-left:0.45em;'}color:${color};opacity:1;font-size:1em;line-height:1.8;overflow-wrap:anywhere;font-style:normal;`;
+      record.node.parentNode.insertBefore(record.translationNode, record.node.nextSibling);
     }
+    attachMarker(record);
   }
 
   function setMode(mode) {
@@ -351,6 +463,7 @@
     if (!settings.translateDynamic || !document.body) return;
     observer = new MutationObserver(mutations => {
       if (myEpoch !== epoch) return;
+      const affectedGroups = new Set();
       for (const mutation of mutations) {
         if (mutation.target.parentElement?.closest('[data-pagelingo]') || mutation.target.closest?.('[data-pagelingo]')) continue;
         if (mutation.type === 'characterData') {
@@ -358,17 +471,19 @@
           if (record && mutation.target.nodeValue === record.lastApplied) continue;
           if (record) {
             record.obsolete = true;
-            record.translationNode?.remove();
+            removeTranslation(record);
             trackedNodes.delete(mutation.target);
           }
           pendingRoots.add(mutation.target);
         } else {
+          affectedGroups.add(paragraphGroup(mutation.target));
           for (const node of mutation.addedNodes) {
             if (node.nodeType === Node.TEXT_NODE || node.nodeType === Node.ELEMENT_NODE) pendingRoots.add(node);
             if (pendingRoots.size > 100) break;
           }
         }
       }
+      for (const group of affectedGroups) syncMarkerGroup(group);
       if (!pendingRoots.size || scanTimer) return;
       scanTimer = setTimeout(() => {
         scanTimer = null;
@@ -397,6 +512,9 @@
       trackedNodes.delete(record.node);
     }
     records.clear();
+    markerGroups = new WeakMap();
+    markerStyle?.remove();
+    markerStyle = null;
     queue = [];
     running = 0;
     cachedCount = 0;

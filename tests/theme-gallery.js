@@ -4,7 +4,7 @@
   if (params.has('fixture')) return;
   const root = new URL('../', location.href), ids = ['sage', 'ocean', 'lavender', 'sand', 'midnight'];
   const names = { sage: '草木绿', ocean: '海盐蓝', lavender: '柔雾紫', sand: '暖纸棕', midnight: '午夜深色' };
-  const theme = ids.includes(params.get('theme')) ? params.get('theme') : 'midnight';
+  const theme = ids.includes(params.get('theme')) ? params.get('theme') : 'ocean';
   const layout = params.get('layout') === 'overview' ? 'overview' : 'detail';
   const $ = id => document.getElementById(id), wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   const panels = [
@@ -106,7 +106,7 @@
     const child = panel.frame.contentWindow, childDoc = panel.frame.contentDocument;
     await until(() => child.__galleryMock && childDoc.documentElement.dataset.theme === theme, `${panel.title}主题`);
     if (panel.kind === 'options') {
-      await until(() => childDoc.querySelectorAll('[data-theme-id]').length === 5 && !childDoc.getElementById(`view-${panel.view}`).hidden, panel.title);
+      await until(() => childDoc.querySelectorAll('[data-theme-id]').length === child.PageLingoThemes?.THEMES.length && !childDoc.getElementById(`view-${panel.view}`).hidden, panel.title);
       if (panel.view === 'usage') { childDoc.querySelector('[data-usage-period="7d"]').click(); await until(() => childDoc.getElementById('usage-requests').textContent === '42' && childDoc.getElementById('usage-content').getAttribute('aria-busy') === 'false', '演示统计'); }
       await until(() => !childDoc.fonts || childDoc.fonts.status === 'loaded', '字体');
       panel.height = Math.max(900, Math.ceil(childDoc.querySelector('.page-footer').getBoundingClientRect().bottom + 20));
@@ -196,6 +196,7 @@
       const errors = panels.flatMap(panel => panel.frame.contentWindow.__galleryMock?.errors || []);
       if (errors.length) throw new Error(errors.join('\n'));
       $('status').textContent = '10 / 10 个正式界面就绪 · 全部为演示数据'; document.documentElement.dataset.gallery = 'ready';
+      $('download-geometry').focus({ preventScroll: true });
     } catch (error) { $('status').textContent = '加载失败'; $('status').classList.add('error'); $('errors').textContent = error.stack || error.message; document.documentElement.dataset.gallery = 'error'; }
   }
   $('download-geometry').addEventListener('click', () => { const value = geometry(); const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `pagelingo-${theme}-${layout}-geometry.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); });

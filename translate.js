@@ -14,6 +14,18 @@ let result = null;
 let copying = false;
 let closed = false;
 
+function renderTranslation(target, text) {
+  target.textContent = '';
+  // Keep every original line break and space in text nodes; the badge is CSS only.
+  for (const part of text.split(/(\r\n|[\r\n\u2028\u2029])/)) {
+    if (!part) continue;
+    if (!part.trim()) { target.append(document.createTextNode(part)); continue; }
+    const paragraph = document.createElement('span');
+    paragraph.className = 'translation-paragraph'; paragraph.textContent = part;
+    target.append(paragraph);
+  }
+}
+
 function status(text, error = false) {
   $('manual-status').textContent = text;
   $('manual-status').classList.toggle('error', error);
@@ -105,7 +117,7 @@ async function translate() {
     const active = configuration();
     result = { source: request.source, language: request.language, text: response.text, cached: response.cached === true,
       providerId: response.providerId || active.providerId, model: response.model || active.model, revision: request.revision };
-    $('manual-output').textContent = result.text;
+    renderTranslation($('manual-output'), result.text);
     $('manual-output').dataset.empty = 'false';
     $('manual-output').scrollTop = 0;
     status(response.cached ? '翻译完成 · 直接复用本地缓存。' : `翻译完成 · 耗时 ${((performance.now() - request.started) / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} 秒。`);
