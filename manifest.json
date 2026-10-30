@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "PageLingo · AI 网页翻译",
+  "version": "1.0.0",
+  "description": "连接你自己的 AI 模型，快速翻译当前网页。支持双语对照、并行翻译和本地缓存。",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "PageLingo · 翻译当前页面", "default_popup": "popup.html", "default_icon": { "16": "assets/icon16.png", "32": "assets/icon32.png", "48": "assets/icon48.png", "128": "assets/icon128.png" } },
+  "icons": { "16": "assets/icon16.png", "32": "assets/icon32.png", "48": "assets/icon48.png", "128": "assets/icon128.png" },
+  "options_page": "options.html",
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'self';" }
+}

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light"><title>PageLingo · 翻译工作台</title>
+  <link rel="icon" href="assets/icon32.png"><link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="options.html" aria-label="PageLingo 首页"><span class="brand-symbol">P<span>文</span></span><span>PageLingo<span class="brand-caption">YOUR WORLD, TRANSLATED.</span></span></a>
+    <div class="workspace-label">工作空间 <span>PERSONAL</span></div>
+    <nav aria-label="配置导航">
+      <button class="nav-item active" data-view="providers"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>AI 服务商<span class="nav-count">10</span></button>
+      <button class="nav-item" data-view="preferences"><svg viewBox="0 0 24 24"><path d="M4 5h12M10 3v2m-4 0c0 6 3 9 8 11M15 5c-1 6-5 10-11 12m10 3 4-11 4 11m-6-4h4"/></svg>翻译偏好</button>
+      <button class="nav-item" data-view="performance"><svg viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-13h-7z"/></svg>速度与缓存</button>
+    </nav>
+    <div class="sidebar-note"><span class="tiny-spark">✳</span><strong>世界很大，轻松读懂。</strong><p>用你喜欢的 AI，<br>打开每一种语言。</p><div class="note-line"></div><span class="note-meta">BUILT FOR CURIOUS MINDS ↗</span></div>
+    <div class="sidebar-bottom"><span class="local-dot"></span>独立运行 · 密钥本地保存<span class="version">v1.0</span></div>
+  </aside>
+  <div class="main-shell">
+    <header class="topbar"><div class="breadcrumb">工作空间 <span>/</span> <strong id="breadcrumb-current">AI 服务商</strong></div><div class="topbar-right"><span class="privacy-icon">⌘</span><span>为你的好奇心加速</span><span class="avatar">P</span></div></header>
+    <main>
+      <div id="preview-banner" class="preview-banner" hidden>配置页预览 · 安装 Chrome 扩展后，即可测试连接并翻译网页。<a href="README.md" target="_blank" rel="noopener">查看安装说明 ↗</a></div>
+      <section class="page-heading"><div><div class="eyebrow"><span></span> A LITTLE AI. A BIGGER WORLD.</div><h1 id="page-title">让语言，不再是边界<span class="lime-period">.</span></h1><p id="page-description">连接你信赖的 AI，让每个网页都像母语一样自然。</p></div><div class="heading-stamp"><span>文</span><span class="stamp-arrow">↗</span><span>A</span></div></section>
+      <div class="overview">
+        <div class="overview-item"><span class="overview-icon">✦</span><div><span class="stat-label">当前翻译引擎</span><strong id="summary-provider">DeepSeek <span class="stat-status">待配置</span></strong></div><span class="overview-index">01</span></div>
+        <div class="overview-item"><span class="overview-icon">文</span><div><span class="stat-label">默认翻译偏好</span><strong id="summary-language">简体中文 <span class="stat-light">/ 双语对照</span></strong></div><span class="overview-index">02</span></div>
+        <div class="overview-item"><span class="overview-icon">↯</span><div><span class="stat-label">更快一点，再快一点</span><strong id="summary-speed">4 路并发 <span class="stat-light">+ 智能缓存</span></strong></div><span class="overview-index">03</span></div>
+      </div>
+
+      <section class="view" id="view-providers">
+        <div class="section-heading"><div><h2>选择你的 AI 服务商 <span class="count-pill">10</span></h2><p>你的模型，你的选择。点击卡片配置独立的 API 密钥。</p></div><span class="section-aside"><span class="mini-dot"></span> 直连服务商，无中转</span></div>
+        <div class="provider-grid" id="provider-grid" role="group" aria-label="AI 服务商"></div>
+        <div class="configuration-layout">
+          <section class="panel config-panel">
+            <div class="panel-heading"><div class="provider-title"><span id="config-icon" class="provider-icon">D</span><div><h2 id="config-title">DeepSeek 配置</h2><p id="config-description">通用对话模型，兼顾翻译质量与成本。</p></div></div><span class="outline-badge" id="config-badge">尚未配置</span></div>
+            <form id="provider-form">
+              <div class="field-heading"><label for="api-key">API 密钥 <span id="key-optional"></span></label><a id="get-key-link" target="_blank" rel="noopener noreferrer">获取 API Key ↗</a></div>
+              <div class="password-field"><span class="field-prefix">⚿</span><input id="api-key" type="password" placeholder="输入你的 API Key" autocomplete="off" spellcheck="false"><button id="toggle-key" type="button" class="icon-button" aria-label="显示 API 密钥" title="显示 API 密钥"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+              <p class="field-hint"><svg viewBox="0 0 16 16"><path d="M8 1 2.5 3v4c0 4 5.5 7 5.5 7s5.5-3 5.5-7V3Z"/><path d="m5.5 7.5 1.5 1.5 3-3"/></svg>密钥仅保存在当前浏览器，不会同步到其他设备。</p>
+              <div class="field-heading model-heading"><label for="model">翻译模型</label><span class="small-label">支持手动输入模型 ID</span></div>
+              <input id="model" class="text-input" list="model-list" placeholder="输入模型 ID" spellcheck="false" autocomplete="off" required><datalist id="model-list"></datalist>
+              <p class="field-hint">日常翻译优先使用轻量、非推理模型，响应更快。</p>
+              <details id="endpoint-details"><summary>自定义 API 地址 <span>高级设置</span><svg viewBox="0 0 16 16"><path d="m5 6 3 3 3-3"/></svg></summary><div class="endpoint-field"><label for="base-url">API Base URL</label><input id="base-url" class="text-input" type="url" spellcheck="false" required><p class="field-hint">填写包含版本的根地址，例如 https://api.example.com/v1</p></div></details>
+              <div id="provider-error" class="inline-error" role="alert" hidden></div>
+              <div class="form-footer"><span id="unsaved-label">修改后记得保存</span><button type="submit" class="button button-primary" id="save-provider">保存并使用 <span>↗</span></button></div>
+            </form>
+          </section>
+          <aside class="right-column">
+            <section class="panel test-panel"><div class="test-heading"><span class="test-orbit">↗</span><h3>连接好了？试一下。</h3></div><p>用一句短文本，检查密钥与模型是否可用。</p><div class="sample-card"><div class="sample-caption">ENGLISH <span>→</span> <span id="test-target-label">简体中文</span></div><p>Stay curious. The world is yours to explore.</p><div id="test-result" class="sample-result" role="status">让好奇心，带你走得更远。</div></div><button type="button" class="button button-secondary" id="test-connection"><svg viewBox="0 0 20 20"><path d="m8 3 7 7-7 7M3 10h12"/></svg><span>测试连接</span></button><div id="connection-status" class="connection-status" role="status">测试会向所选服务商发送这句示例文本。</div></section>
+            <section class="speed-note"><span class="speed-note-icon">ϟ</span><div><h3>快，从第一屏开始。</h3><p>可见内容优先，小批量并行。<br>边翻译，边阅读，无需等待整页。</p><button data-go="performance">了解加速设置 <span>↗</span></button></div></section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-preferences" hidden>
+        <section class="panel settings-panel"><div class="panel-heading"><div><h2>按照你的方式阅读</h2><p>这些设置会应用到下一次网页翻译。</p></div><span class="settings-number">01 / READ</span></div>
+          <form id="preferences-form"><div class="settings-row"><div><label for="target-language">默认目标语言</label><p>自动识别原文语言，并翻译成你熟悉的语言。</p></div><select id="target-language"></select></div><div class="settings-row"><div><span class="setting-label">译文显示方式</span><p>双语对照保留原文，纯译文让阅读更专注。</p></div><div class="segmented" id="display-mode"><button type="button" data-mode="bilingual">双语对照</button><button type="button" data-mode="translated">仅显示译文</button></div></div><div class="reading-preview"><span class="preview-kicker">A SMALL PREVIEW</span><p id="reading-original">A new language is a new perspective.</p><p class="reading-translation">一种新的语言，一种新的视角。</p><span>原有的链接与页面结构，依然保留。</span></div><div class="settings-row"><div><label for="translate-dynamic">继续翻译新加载的内容</label><p>翻译开始后，自动处理滚动加载的文本；恢复原文后停止。</p></div><label class="switch"><input type="checkbox" id="translate-dynamic"><span></span></label></div><div class="form-footer"><span>只在你点击翻译后读取网页内容</span><button class="button button-primary" type="submit">保存翻译偏好 <span>↗</span></button></div></form>
+        </section>
+      </section>
+
+      <section class="view" id="view-performance" hidden>
+        <section class="panel settings-panel"><div class="panel-heading"><div><h2>为流畅阅读，再提一点速</h2><p>按你的网络与 API 配额，找到合适的节奏。</p></div><span class="settings-number">02 / SPEED</span></div><form id="performance-form"><div class="settings-row"><div><label for="concurrency">并行请求数</label><p>多批文本同时翻译。过高可能触发服务商限流。</p></div><div class="range-control"><input type="range" id="concurrency" min="1" max="8" step="1"><output id="concurrency-value">4 路</output></div></div><div class="settings-row"><div><label for="batch-size">每批文本量</label><p>较小批次更快看到首段，较大批次减少请求数。</p></div><select id="batch-size"><option value="1000">轻快 · 1,000 字符</option><option value="2200">均衡 · 2,200 字符</option><option value="4000">高吞吐 · 4,000 字符</option><option value="6000">大批量 · 6,000 字符</option></select></div><div class="settings-row"><div><label for="cache-enabled">本地翻译缓存</label><p>相同服务、模型和目标语言的重复文本，直接复用译文。</p></div><label class="switch"><input type="checkbox" id="cache-enabled"><span></span></label></div><div class="speed-flow"><div><span>01</span><strong>可见区域优先</strong><p>从你正在读的内容开始</p></div><i>→</i><div><span>02</span><strong>批量并行处理</strong><p>更少等待，更快返回</p></div><i>→</i><div><span>03</span><strong>译文即时呈现</strong><p>已完成的内容立即可读</p></div></div><div class="form-footer"><span>真实速度取决于模型、网络和限流情况</span><button class="button button-primary" type="submit">保存加速设置 <span>↗</span></button></div></form></section>
+        <section class="panel cache-panel"><div><h3>给缓存留一点空间</h3><p id="cache-stats">正在读取本地缓存…</p><p class="cache-privacy">缓存包含译文，仅保存在此浏览器；敏感页面可关闭缓存。</p></div><button class="button button-secondary" id="clear-cache">清空翻译缓存</button></section>
+      </section>
+
+      <footer class="page-footer"><span>PageLingo <span class="footer-dot">·</span> 少一点语言障碍，多一点世界。</span><span>MADE FOR THE WAY YOU READ <span>↗</span></span></footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" hidden><span>✓</span><span id="toast-text"></span></div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

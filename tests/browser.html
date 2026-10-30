@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PageLingo · 浏览器集成测试</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f6f1; color: #252a20; font: 15px/1.8 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(1040px, calc(100% - 48px)); margin: 32px auto 100px; }
+    .controls { background: #fff; border: 1px solid #dde3d4; border-radius: 20px; padding: 26px 32px; }
+    .eyebrow { color: #69765a; text-transform: uppercase; font-size: 12px; letter-spacing: 2px; font-weight: 700; }
+    h1 { margin: 4px 0 6px; font-size: 28px; letter-spacing: -1px; }
+    .description { color: #6b7462; margin: 0 0 20px; }
+    button { background: #c7ef65; color: #263318; border: 0; border-radius: 10px; font: inherit; font-weight: 650; padding: 11px 22px; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    #summary { display: inline-block; margin-left: 18px; font-weight: 650; }
+    #summary.pass { color: #4b7725; } #summary.fail { color: #bd382c; }
+    #results { list-style: none; padding: 0; margin: 20px 0 0; }
+    #results li { padding: 6px 0; border-top: 1px solid #eef0e9; font-size: 13px; }
+    #results li.pass::before { content: '✓'; color: #4b7725; display: inline-block; width: 24px; font-weight: 700; }
+    #results li.fail::before { content: '✕'; color: #bd382c; display: inline-block; width: 24px; font-weight: 700; }
+    #metrics { font: 12px/1.8 ui-monospace, monospace; color: #76816b; white-space: pre-wrap; margin-top: 14px; }
+    article { max-width: 800px; margin: 30px auto; padding: 36px 42px; border: 1px solid #e2e6db; border-radius: 16px; background: #fff; }
+    article h2 { font-size: 25px; line-height: 1.4; margin: 0 0 16px; }
+    article p { margin: 16px 0; color: #46523c; }
+    article a { color: #608c2e; } article code { background: #edf1e7; padding: 3px 6px; border-radius: 5px; }
+    .fixture-note { margin-top: 24px; color: #7d8577; font-size: 12px; }
+    .privacy-fixture { border: 1px dashed #d8decf; border-radius: 8px; padding: 12px; }
+    .privacy-fixture input { max-width: 180px; padding: 6px; }
+    #error-log { color: #a9362d; white-space: pre-wrap; font-size: 12px; }
+  </style>
+  <script src="browser.js" defer></script>
+  <script src="../content.js" defer></script>
+</head>
+<body>
+  <main>
+    <section class="controls" translate="no">
+      <div class="eyebrow">PageLingo / Browser integration</div>
+      <h1>真实浏览器集成测试</h1>
+      <p class="description">直接运行正式 content.js，使用模拟模型响应。检查原生 DOM、可见性、MutationObserver、并发和还原行为。</p>
+      <button id="run" type="button">运行浏览器集成测试</button><span id="summary" role="status">等待运行</span>
+      <ul id="results"></ul>
+      <div id="metrics"></div>
+      <pre id="error-log"></pre>
+    </section>
+    <article id="fixture" aria-label="English article translation fixture">
+      <h2 id="fixture-heading">Reading across languages, without losing the page.</h2>
+      <p id="inline-paragraph">A good translation keeps <a id="inline-link" href="#fixture-heading">the original link</a> and <em id="inline-emphasis">important emphasis</em> intact. The website should continue to work while readers move between languages.</p>
+      <p id="html-fixture">An HTML-like translation should remain plain text.</p>
+      <div id="long-paragraphs"></div>
+      <div class="privacy-fixture">
+        <form><label>PRIVATE_FORM_LABEL<input value="PRIVATE_INPUT_VALUE" aria-label="PRIVATE_INPUT_LABEL"></label></form>
+        <p translate="no">EXCLUDED_TRANSLATE_NO_TEXT</p>
+        <p contenteditable="true">PRIVATE_EDITABLE_CONTENT</p>
+        <pre><code>EXCLUDED_CODE_CONTENT</code></pre>
+      </div>
+      <div style="display:none"><div><p>HIDDEN_ANCESTOR_DISPLAY_NONE</p></div></div>
+      <div style="opacity:0;height:0;overflow:hidden"><p>HIDDEN_ANCESTOR_OPACITY_ZERO</p></div>
+      <div hidden><p>HIDDEN_ANCESTOR_ATTRIBUTE</p></div>
+    </article>
+    <p class="fixture-note" translate="no">测试记录只保存在当前页面中。不会读取或调用任何真实 API Key。</p>
+  </main>
+</body>
+</html>
