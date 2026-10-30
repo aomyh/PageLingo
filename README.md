@@ -180,6 +180,10 @@ npm run package # 生成解压目录和 ZIP 安装包
 
 `tests/theme-gallery.html?theme=midnight` 加载同一主题的全部十个正式界面，页面中的「下载裁切坐标」可导出布局信息。通过浏览器导出完整长图后，使用 `scripts/compose-theme-screenshots.py` 和 Pillow 裁切逐页截图、生成其他主题的全部页面拼图；截图与统计均为演示数据。
 
+## 开源许可证
+
+本项目采用 [MIT 许可证](LICENSE)，允许使用、修改和商业使用；分发时请保留版权声明和许可证文本。
+
 ## API 参考
 
 - [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
