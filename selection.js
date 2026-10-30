@@ -4,7 +4,7 @@
   if (globalThis.__pageLingoSelectionInstalled) return;
   globalThis.__pageLingoSelectionInstalled = true;
 
-  const EXCLUDED = 'script,style,noscript,pre,code,kbd,samp,svg,math,canvas,iframe,object,textarea,input,select,option,button,form,[contenteditable]:not([contenteditable="false"]),[translate="no"],[inert],[aria-hidden="true"],[data-pagelingo]';
+  const EXCLUDED = 'script,style,noscript,svg,math,canvas,iframe,object,textarea,input,select,option,button,form,[contenteditable]:not([contenteditable="false"]),[translate="no"],[inert],[aria-hidden="true"],[data-pagelingo]';
   const MAX_TEXT = 5000;
   const DEBOUNCE = 250;
   const nodeIds = new WeakMap();
@@ -50,7 +50,8 @@
   }
   function visible(elementNode) {
     if (!elementNode || !elementNode.isConnected || elementNode.closest(EXCLUDED) || elementNode.closest('[hidden]')) return false;
-    if (typeof elementNode.checkVisibility === 'function' && !elementNode.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+    // display:contents removes this wrapper's own box, not its visible descendant text.
+    if (getComputedStyle(elementNode).display !== 'contents' && typeof elementNode.checkVisibility === 'function' && !elementNode.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
     for (let ancestor = elementNode; ancestor; ancestor = ancestor.parentElement) {
       const style = getComputedStyle(ancestor);
       if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.opacity === '0' || style.contentVisibility === 'hidden') return false;
@@ -197,7 +198,7 @@
     pointerSelecting = event.button === undefined || event.button === 0;
   }
   function pointerCanceled() { pointerSelecting = false; dismiss(); }
-  function keyDown(event) { if (event.key === 'Escape') dismiss(); }
+  function keyDown(event) { if (event.key === 'Escape') pointerCanceled(); }
   function moved(event) { if (!ownEvent(event)) dismiss(); }
 
   function setListening(enabled) {
@@ -206,13 +207,16 @@
     if (!enabled) pointerSelecting = false;
     const method = enabled ? 'addEventListener' : 'removeEventListener';
     document[method]('selectionchange', selectionChanged);
-    document[method]('pointerup', selectionEnded);
-    document[method]('mouseup', selectionEnded);
+    // Site widgets often stop release events from bubbling. Capture them before
+    // that happens so a completed drag cannot leave selection paused forever.
+    document[method]('pointerup', selectionEnded, true);
+    document[method]('mouseup', selectionEnded, true);
     document[method]('pointerdown', pointerDown, true);
     document[method]('pointercancel', pointerCanceled, true);
     document[method]('keydown', keyDown, true);
     window[method]('scroll', moved, true);
     window[method]('resize', moved);
+    window[method]('blur', pointerCanceled);
   }
   function applySettings(next) {
     const previous = settings;

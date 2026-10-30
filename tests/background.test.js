@@ -6,10 +6,16 @@ let permission = true;
 let openedOptions = false;
 let storageProtection;
 let changedListener, removedListener, startupListener;
+let tabRemovedListener;
 let registeredScripts = [];
 const selectionMessages = [];
 const selectionInjections = [];
+let translatorWindows = [];
+const createdWindows = [], updatedWindows = [], activatedTabs = [];
 let settings = { activeProvider: 'custom', concurrency: 2, cacheEnabled: false, providers: { custom: { apiKey: 'private-key-do-not-expose', model: 'test-model', baseUrl: 'https://api.example.com/v1' } } };
+const settingsKey = 'pagelingo.settings.v1';
+const stored = {};
+const sessionStored = {};
 globalThis.chrome = {
   runtime: {
     id: 'extension-id', getURL: path => `chrome-extension://extension-id/${path}`,
@@ -18,17 +24,38 @@ globalThis.chrome = {
     onStartup: { addListener: fn => { startupListener = fn; } },
   },
   storage: { local: {
-    get: async key => ({ [key]: settings }),
+    get: async key => ({ [key]: key === settingsKey ? settings : structuredClone(stored[key]) }),
     set: async values => {
-      const [key, value] = Object.entries(values)[0];
-      const previous = settings;
-      settings = value;
-      queueMicrotask(() => changedListener?.({ [key]: { oldValue: previous, newValue: value } }, 'local'));
+      const changes = {};
+      for (const [key, value] of Object.entries(values)) {
+        const previous = key === settingsKey ? settings : stored[key];
+        if (key === settingsKey) settings = value;
+        else stored[key] = structuredClone(value);
+        changes[key] = { oldValue: previous, newValue: value };
+      }
+      queueMicrotask(() => changedListener?.(changes, 'local'));
     },
     setAccessLevel: async options => { storageProtection = options; },
+  }, session: {
+    get: async key => ({ [key]: sessionStored[key] }),
+    set: async values => { Object.assign(sessionStored, values); },
   }, onChanged: { addListener: fn => { changedListener = fn; } } },
   permissions: { contains: async () => permission, onRemoved: { addListener: fn => { removedListener = fn; } } },
-  tabs: { onRemoved: { addListener: () => {} }, query: async () => [{ id: 7, url: 'https://news.example.com/article' }], sendMessage: async (id, value) => { selectionMessages.push({ id, value }); return { ok: true }; } },
+  tabs: { onRemoved: { addListener: fn => { tabRemovedListener = fn; } }, query: async () => [{ id: 7, url: 'https://news.example.com/article' }], sendMessage: async (id, value) => { selectionMessages.push({ id, value }); return { ok: true }; }, update: async (id, options) => { activatedTabs.push({ id, options }); return { id }; } },
+  windows: {
+    get: async id => {
+      const window = translatorWindows.find(value => value.id === id);
+      if (!window) throw new Error('No such window');
+      return { id: window.id, type: 'popup', state: 'normal' };
+    },
+    create: async options => {
+      createdWindows.push(options);
+      const window = { id: 100 + createdWindows.length, tabs: [{ id: 1000 + createdWindows.length, url: options.url }] };
+      translatorWindows.push(window);
+      return window;
+    },
+    update: async (id, options) => { updatedWindows.push({ id, options }); return { id }; },
+  },
   scripting: {
     getRegisteredContentScripts: async () => registeredScripts,
     registerContentScripts: async scripts => { registeredScripts = scripts; },
@@ -45,9 +72,18 @@ const message = (request, sender = ui) => new Promise(resolve => {
   assert.equal(asyncReply, true, 'the service worker must preserve its async reply channel');
 });
 const batch = (sessionId, text = 'Hello') => ({ type: 'TRANSLATE_BATCH', sessionId, items: [{ id: 'a', text }] });
-function translationResponse(options, text = '你好') {
+const manual = (requestId, text = 'Manual input', extra = {}) => ({ type: 'TRANSLATE_TEXT', requestId, text, ...extra });
+const translatorUI = { id: 'extension-id', url: 'chrome-extension://extension-id/translate.html', documentId: 'manual-document-1', tab: { id: 22, url: 'chrome-extension://extension-id/translate.html' } };
+async function until(predicate) {
+  const started = Date.now();
+  while (!predicate()) {
+    assert.ok(Date.now() - started < 2000, 'background test condition must settle');
+    await new Promise(resolve => setImmediate(resolve));
+  }
+}
+function translationResponse(options, text = '你好', usage) {
   const items = JSON.parse(JSON.parse(options.body).messages[1].content);
-  return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(items.map(item => ({ id: item.id, text }))) } }] }));
+  return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(items.map(item => ({ id: item.id, text }))) } }], usage }));
 }
 
 test('keys are restricted to trusted extension storage contexts', () => {
@@ -216,4 +252,226 @@ test('startup restores enabled registration and removed webpage permission turns
   assert.equal(registeredScripts.length, 0);
   assert.equal(selectionMessages.at(-1).value.settings.selectionEnabled, false);
   permission = true;
+});
+
+test('usage administration is restricted to extension UI and validates time ranges', async () => {
+  for (const type of ['GET_USAGE_STATS', 'CLEAR_USAGE_STATS']) {
+    assert.equal((await message({ type }, content)).ok, false);
+    assert.equal((await message({ type }, { ...ui, id: 'other-extension' })).ok, false);
+  }
+  assert.equal((await message({ type: 'GET_USAGE_STATS', period: 'invalid' })).ok, false);
+  assert.deepEqual(await message({ type: 'CLEAR_USAGE_STATS' }), { ok: true });
+  const result = await message({ type: 'GET_USAGE_STATS' });
+  assert.equal(result.ok, true);
+  assert.equal(result.summary.requests, 0);
+  assert.equal(result.period, 'today');
+});
+
+test('worker records paid usage once, cache deliveries separately, and test traffic without source text', async () => {
+  await message({ type: 'CLEAR_USAGE_STATS' });
+  await message({ type: 'CLEAR_CACHE' });
+  await message({ type: 'SET_SELECTION_ENABLED', enabled: true });
+  settings.cacheEnabled = true;
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => {
+    calls++;
+    return translationResponse(options, '译文', { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, prompt_tokens_details: { cached_tokens: 50 } });
+  };
+  const source = 'Confidential text 😀';
+  assert.equal((await message(batch('usage-page', source), content)).ok, true);
+  assert.equal((await message({ type: 'TRANSLATE_SELECTION', sessionId: 'usage-selection', text: source }, content)).cached, true);
+  assert.equal((await message({ type: 'TEST_CONNECTION', providerId: 'custom', config: settings.providers.custom })).ok, true);
+  assert.equal(calls, 2);
+  const result = await message({ type: 'GET_USAGE_STATS', period: 'all' });
+  assert.equal(result.summary.requests, 2);
+  assert.equal(result.summary.totalTokens, 240);
+  assert.equal(result.summary.cachedInputTokens, 100);
+  assert.equal(result.summary.translatedCharacters, [...source].length * 2);
+  assert.equal(result.summary.totalItems, 2);
+  assert.equal(result.summary.cacheHits, 1);
+  assert.equal(result.summary.cacheHitRate, 50);
+  assert.equal(result.kinds.test.requests, 1);
+  assert.equal(result.kinds.test.translatedCharacters, 0);
+  assert.equal(result.kinds.selection.cacheHits, 1);
+  const serialized = JSON.stringify(stored['pagelingo.usage.v1']);
+  for (const secret of [source, 'private-key-do-not-expose', 'https://api.example.com', '译文']) assert.equal(serialized.includes(secret), false);
+  const before = await message({ type: 'CACHE_STATS' });
+  await message({ type: 'CLEAR_USAGE_STATS' });
+  assert.equal((await message({ type: 'GET_USAGE_STATS', period: 'all' })).summary.totalTokens, 0);
+  assert.equal((await message({ type: 'CACHE_STATS' })).entries, before.entries);
+  assert.equal(settings.providers.custom.apiKey, 'private-key-do-not-expose');
+  settings.cacheEnabled = false;
+});
+
+test('manual window opening is trusted-only, coalesces concurrent clicks and focuses an existing window', async () => {
+  assert.equal((await message({ type: 'OPEN_TEXT_TRANSLATOR' }, content)).ok, false);
+  const results = await Promise.all(Array.from({ length: 3 }, () => message({ type: 'OPEN_TEXT_TRANSLATOR' })));
+  assert.ok(results.every(result => result.ok && result.windowId === results[0].windowId));
+  assert.equal(createdWindows.length, 1);
+  assert.deepEqual(createdWindows[0], { type: 'popup', url: 'chrome-extension://extension-id/translate.html', width: 460, height: 680, focused: true });
+  const again = await message({ type: 'OPEN_TEXT_TRANSLATOR' });
+  assert.equal(again.windowId, results[0].windowId);
+  assert.equal(createdWindows.length, 1);
+  assert.deepEqual(updatedWindows.at(-1), { id: again.windowId, options: { focused: true } });
+  assert.equal(activatedTabs.length, 0, 'window reuse needs no tab information or tabs permission');
+  assert.equal(sessionStored['pagelingo.manualWindow.v1'], again.windowId);
+});
+
+test('manual input is trusted-only, validates Unicode limits and reads only the saved provider config', async () => {
+  let calls = 0;
+  globalThis.fetch = async (url, options) => {
+    calls++;
+    assert.equal(url, 'https://api.example.com/v1/chat/completions');
+    return translationResponse(options, '手动译文');
+  };
+  assert.equal((await message(manual('content-denied'), content)).ok, false);
+  assert.equal((await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'denied' }, content)).ok, false);
+  for (const request of [manual(''), manual('bad id'), manual('empty', ''), manual('spaces', '  '), manual('object', {}), manual('long', '😀'.repeat(5001)), manual('language', 'Hello', { targetLanguage: 'anything' })]) assert.equal((await message(request, translatorUI)).ok, false);
+  assert.equal(calls, 0);
+  const result = await message(manual('unicode-boundary', '😀'.repeat(5000), { targetLanguage: 'fr', providerId: 'other', config: { apiKey: 'attacker', baseUrl: 'https://elsewhere.invalid' } }), translatorUI);
+  assert.deepEqual(result, { ok: true, text: '手动译文', cached: false, providerId: 'custom', model: 'test-model', targetLanguage: 'fr' });
+  assert.equal(calls, 1);
+  assert.equal(JSON.stringify(result).includes('private-key'), false);
+});
+
+test('manual translation needs only the selected API host, works with selection off, and shares cache and usage', async () => {
+  await message({ type: 'SET_SELECTION_ENABLED', enabled: false });
+  await message({ type: 'CLEAR_USAGE_STATS' });
+  await message({ type: 'CLEAR_CACHE' });
+  settings.cacheEnabled = true;
+  const originalContains = chrome.permissions.contains;
+  const grants = [];
+  chrome.permissions.contains = async value => { grants.push(value); return value.origins.length === 1 && value.origins[0] === 'https://api.example.com/*'; };
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => { calls++; return translationResponse(options, '手动翻译结果', { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 }); };
+  try {
+    const source = 'Manual fallback text 😀';
+    const first = await message(manual('manual-cache-first', source), translatorUI);
+    const second = await message(manual('manual-cache-second', source), translatorUI);
+    assert.equal(first.ok, true); assert.equal(first.cached, false);
+    assert.equal(second.ok, true); assert.equal(second.cached, true);
+    assert.equal((await message(batch('manual-shared-page', source), content)).cachedCount, 1);
+    assert.equal(calls, 1);
+    assert.ok(grants.every(value => value.origins.length === 1 && value.origins[0] === 'https://api.example.com/*'));
+    const stats = await message({ type: 'GET_USAGE_STATS', period: 'all' });
+    assert.equal(stats.summary.requests, 1);
+    assert.equal(stats.kinds.manual.requests, 1);
+    assert.equal(stats.kinds.manual.totalTokens, 100);
+    assert.equal(stats.kinds.manual.translatedCharacters, [...source].length * 2);
+    assert.equal(stats.kinds.manual.cacheHits, 1);
+    assert.equal(stats.kinds.page.cacheHits, 1);
+    assert.equal(stats.kinds.selection.requests, 0);
+    assert.equal(JSON.stringify(stored['pagelingo.usage.v1']).includes(source), false);
+  } finally { chrome.permissions.contains = originalContains; settings.cacheEnabled = false; }
+});
+
+test('manual validation stops missing credentials or API grants before fetch and failed calls remain retryable', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return new Response('credential must not escape', { status: 401 }); };
+  const apiKey = settings.providers.custom.apiKey;
+  settings.providers.custom.apiKey = '';
+  assert.equal((await message(manual('missing-manual-key'), translatorUI)).code, 'MISSING_KEY');
+  settings.providers.custom.apiKey = apiKey;
+  permission = false;
+  assert.equal((await message(manual('missing-manual-grant'), translatorUI)).code, 'NO_PERMISSION');
+  permission = true;
+  assert.equal(calls, 0);
+  const failed = await message(manual('retryable-manual'), translatorUI);
+  assert.equal(failed.code, 'HTTP_401');
+  assert.equal(JSON.stringify(failed).includes('credential'), false);
+  globalThis.fetch = async (_url, options) => { calls++; return translationResponse(options, '恢复'); };
+  assert.equal((await message(manual('retryable-manual'), translatorUI)).ok, true);
+  assert.equal(calls, 2);
+});
+
+test('manual cancellation and duplicate protection are scoped to their originating extension document', async () => {
+  const previousConcurrency = settings.concurrency;
+  settings.concurrency = 3;
+  const signals = new Map(), finishes = new Map();
+  globalThis.fetch = async (_url, options) => {
+    const text = JSON.parse(JSON.parse(options.body).messages[1].content)[0].text;
+    signals.set(text, options.signal);
+    return new Promise((resolve, reject) => {
+      finishes.set(text, () => resolve(translationResponse(options, `译文 ${text}`)));
+      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    });
+  };
+  const secondUI = { ...translatorUI, documentId: 'manual-document-2', tab: { ...translatorUI.tab, id: 23 } };
+  const first = message(manual('same-id', 'Manual first'), translatorUI);
+  const second = message(manual('same-id', 'Manual second'), secondUI);
+  const page = message(batch('manual-isolation-page', 'Page independent'), content);
+  try {
+    await until(() => signals.size === 3);
+    assert.equal((await message(manual('same-id', 'Duplicate should not fetch'), translatorUI)).code, 'REQUEST_IN_PROGRESS');
+    await message({ type: 'SET_SELECTION_ENABLED', enabled: false });
+    assert.ok([...signals.values()].every(signal => !signal.aborted));
+    await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'same-id' }, translatorUI);
+    assert.equal((await first).code, 'ABORTED');
+    assert.equal(signals.get('Manual second').aborted, false);
+    assert.equal(signals.get('Page independent').aborted, false);
+    finishes.get('Manual second')(); finishes.get('Page independent')();
+    assert.equal((await second).ok, true); assert.equal((await page).ok, true);
+    assert.equal((await message(manual('same-id', 'Late first'), translatorUI)).code, 'ABORTED');
+  } finally { settings.concurrency = previousConcurrency; }
+});
+
+test('cancelling manual input while its permission check is pending prevents any network activity', async () => {
+  const originalContains = chrome.permissions.contains;
+  let releasePermission, calls = 0;
+  chrome.permissions.contains = async () => new Promise(resolve => { releasePermission = resolve; });
+  globalThis.fetch = async (_url, options) => { calls++; return translationResponse(options); };
+  const task = message(manual('cancel-during-grant'), translatorUI);
+  try {
+    await until(() => Boolean(releasePermission));
+    assert.deepEqual(await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'cancel-during-grant' }, translatorUI), { ok: true });
+    releasePermission(true);
+    assert.equal((await task).code, 'ABORTED');
+    assert.equal(calls, 0);
+    await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'cancel-before-start' }, translatorUI);
+    assert.equal((await message(manual('cancel-before-start'), translatorUI)).code, 'ABORTED');
+  } finally { chrome.permissions.contains = originalContains; }
+});
+
+test('closing the manual window cancels its active request without pagehide or cancelling the page', async () => {
+  const signals = new Map(), finishes = new Map();
+  globalThis.fetch = async (_url, options) => {
+    const text = JSON.parse(JSON.parse(options.body).messages[1].content)[0].text;
+    signals.set(text, options.signal);
+    return new Promise((resolve, reject) => {
+      finishes.set(text, () => resolve(translationResponse(options)));
+      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    });
+  };
+  const manualTask = message(manual('closed-window', 'Manual close'), translatorUI);
+  const pageTask = message(batch('manual-window-independent-page', 'Page continues'), content);
+  await until(() => signals.size === 2);
+  tabRemovedListener(translatorUI.tab.id);
+  assert.equal((await manualTask).code, 'ABORTED');
+  assert.equal(signals.get('Page continues').aborted, false);
+  finishes.get('Page continues')();
+  assert.equal((await pageTask).ok, true);
+});
+
+test('queued manual work shares the page concurrency limit and cancellation does not consume a network slot', async () => {
+  const previousConcurrency = settings.concurrency;
+  settings.concurrency = 1;
+  let calls = 0, releasePage;
+  globalThis.fetch = async (_url, options) => {
+    calls++;
+    if (calls === 1) return new Promise(resolve => { releasePage = () => resolve(translationResponse(options)); });
+    return translationResponse(options);
+  };
+  const pageTask = message(batch('manual-queue-page', 'Page fills the network slot'), content);
+  try {
+    await until(() => Boolean(releasePage));
+    const queued = message(manual('queued-manual', 'Queued manual text'), translatorUI);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(calls, 1);
+    await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'queued-manual' }, translatorUI);
+    assert.equal((await queued).code, 'ABORTED');
+    releasePage();
+    assert.equal((await pageTask).ok, true);
+    assert.equal((await message(manual('manual-after-queued-cancel'), translatorUI)).ok, true);
+    assert.equal(calls, 2);
+  } finally { settings.concurrency = previousConcurrency; }
 });

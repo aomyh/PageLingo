@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../selection.js', import.meta.url), 'utf8');
-const blockedTags = new Set('SCRIPT STYLE NOSCRIPT PRE CODE KBD SAMP SVG MATH CANVAS IFRAME OBJECT TEXTAREA INPUT SELECT OPTION BUTTON FORM'.split(' '));
+const blockedTags = new Set('SCRIPT STYLE NOSCRIPT SVG MATH CANVAS IFRAME OBJECT TEXTAREA INPUT SELECT OPTION BUTTON FORM'.split(' '));
 const enabled = { selectionEnabled: true, targetLanguage: 'zh-CN', providerName: 'Test AI', model: 'test-model', ready: true };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -22,9 +22,10 @@ class FakeNode {
   append(...nodes) { for (const node of nodes) { node.remove(); node.parentNode = this; this.childNodes.push(node); } }
   remove() { if (this.parentNode) { const siblings = this.parentNode.childNodes; siblings.splice(siblings.indexOf(this), 1); this.parentNode = null; } }
   contains(node) { return this === node || this.childNodes.some(child => child.contains(node)); }
-  addEventListener(name, fn) { if (!this.listeners.has(name)) this.listeners.set(name, new Set()); this.listeners.get(name).add(fn); }
-  removeEventListener(name, fn) { this.listeners.get(name)?.delete(fn); }
+  addEventListener(name, fn, options) { if (!this.listeners.has(name)) this.listeners.set(name, new Set()); this.listeners.get(name).add(fn); this.listenerCapture ||= new Map(); if (!this.listenerCapture.has(name)) this.listenerCapture.set(name, new Map()); this.listenerCapture.get(name).set(fn, options === true || options?.capture === true); }
+  removeEventListener(name, fn, options) { if (this.listenerCapture.get(name)?.get(fn) === (options === true || options?.capture === true)) { this.listeners.get(name)?.delete(fn); this.listenerCapture.get(name).delete(fn); } }
   fire(name, options = {}) { const event = { target: this, preventDefault() {}, ...options }; for (const fn of [...this.listeners.get(name) || []]) fn(event); }
+  fireStoppedRelease(name, options = {}) { const event = { target: this, preventDefault() {}, ...options }; for (const fn of [...this.listeners.get(name) || []]) if (this.listenerCapture.get(name)?.get(fn)) fn(event); }
   blocked() { return blockedTags.has(this.tagName) || this.attributes.has('data-pagelingo') || this.getAttribute('translate') === 'no' || this.getAttribute('aria-hidden') === 'true' || this.attributes.has('inert') || (this.attributes.has('contenteditable') && this.getAttribute('contenteditable') !== 'false'); }
   closest(selector) { for (let node = this; node?.nodeType === 1; node = node.parentElement) if (selector === '[hidden]' ? node.attributes.has('hidden') : node.blocked()) return node; return null; }
   querySelectorAll(selector) { return descendants(this).filter(node => node !== this && node.nodeType === 1 && (selector === '*' || (selector.includes('script,style') && (node.blocked() || node.attributes.has('hidden'))) || (selector === '[data-pagelingo]' && node.attributes.has('data-pagelingo')))); }
@@ -143,16 +144,67 @@ test('a paused mouse drag waits for release while keyboard selections still use 
   assert.equal(page.requests.length, 2, 'keyboard/programmatic selections need no pointerup');
 });
 
-test('rejects editable/code endpoints and ranges crossing private forms or CSS-hidden text', async () => {
+test('capture-phase releases still translate when the site stops event bubbling and are removed on disable', async () => {
+  const page = harness(); page.settings(enabled);
+  const text = page.text('Text selected in an interactive site widget'); page.document.body.append(page.node('p', text));
+  page.document.fire('pointerdown', { button: 0, target: text.parentElement });
+  page.select(text); page.document.fire('selectionchange'); page.advance(500);
+  assert.equal(page.requests.length, 0);
+  page.document.fireStoppedRelease('pointerup', { button: 0, target: text.parentElement });
+  page.document.fireStoppedRelease('mouseup', { button: 0, target: text.parentElement });
+  page.advance(); await flush();
+  assert.equal(page.requests.length, 1);
+  assert.equal(page.host.getAttribute('data-state'), 'complete');
+  page.settings({ ...enabled, selectionEnabled: false });
+  assert.equal([...page.document.listeners.values()].every(listeners => !listeners.size), true);
+  assert.equal([...page.window.listeners.values()].every(listeners => !listeners.size), true);
+});
+
+test('window blur cancels a lost mouse release and permits the next keyboard selection', async () => {
+  const page = harness(); page.settings(enabled);
+  const text = page.text('A keyboard selection after leaving the window'); page.document.body.append(page.node('p', text));
+  page.document.fire('pointerdown', { button: 0 }); page.select(text); page.document.fire('selectionchange');
+  page.window.fire('blur'); page.advance(500); await flush();
+  assert.equal(page.requests.length, 0); assert.equal(page.host, undefined);
+  page.document.fire('selectionchange'); page.advance(); await flush();
+  assert.equal(page.requests.length, 1);
+});
+
+test('visible text in display:contents wrappers translates while hidden ancestors are still excluded', async () => {
+  const page = harness(); page.settings(enabled);
+  const text = page.text('Visible text without a wrapper layout box');
+  const wrapper = page.node('span', text); wrapper.style.display = 'contents'; wrapper.checkVisibility = () => false;
+  const paragraph = page.node('p', wrapper); page.document.body.append(paragraph);
+  page.select(text); page.document.fire('mouseup', { button: 0 }); page.advance(); await flush();
+  assert.equal(page.requests.length, 1); assert.equal(page.host.getAttribute('data-state'), 'complete');
+  page.collapse(); paragraph.style.opacity = '0';
+  page.select(text); page.document.fire('mouseup', { button: 0 }); page.advance(); await flush();
+  assert.equal(page.requests.length, 1); assert.equal(page.host, undefined);
+});
+
+test('explicitly selected code words translate without modifying the code or original nodes', async () => {
+  const page = harness(); page.settings(enabled);
+  for (const [index, tag] of ['pre', 'code', 'kbd', 'samp'].entries()) {
+    const original = `const greeting${index} = 'Hello world';`;
+    const text = page.text(original), code = page.node(tag, text);
+    page.document.body.append(code);
+    page.select(text, text, `greeting${index}`); page.document.fire('mouseup', { button: 0 }); page.advance(); await flush();
+    assert.equal(page.requests.length, index + 1);
+    assert.equal(page.requests[index].text, `greeting${index}`);
+    assert.equal(page.host.getAttribute('data-state'), 'complete');
+    assert.equal(code.childNodes[0], text); assert.equal(text.nodeValue, original);
+  }
+});
+
+test('rejects editable endpoints and ranges crossing private forms or CSS-hidden text', async () => {
   const page = harness(); page.settings(enabled);
   const before = page.text('Before'), after = page.text('After'), privateText = page.text('Private form value'), hiddenText = page.text('Hidden paragraph');
   const form = page.node('form', page.node('label', privateText));
   const hidden = page.node('div', hiddenText); hidden.style.opacity = '0';
   const editableText = page.text('Editable content'), editable = page.node('div', editableText); editable.setAttribute('contenteditable', 'true');
-  const codeText = page.text('Code content'), code = page.node('pre', codeText);
-  page.document.body.append(page.node('p', before), form, hidden, editable, code, page.node('p', after));
+  page.document.body.append(page.node('p', before), form, hidden, editable, page.node('p', after));
   const reject = (start, end, text, nodes) => { page.select(start, end, text, nodes); page.document.fire('mouseup', { button: 0 }); page.advance(); };
-  reject(editableText); reject(codeText);
+  reject(editableText);
   reject(before, after, 'Before Private form value After', [before, privateText, after]);
   reject(before, after, 'Before Hidden paragraph After', [before, hiddenText, after]);
   reject(before, before, '12345'); reject(before, before, 'a'.repeat(5001)); reject(before, before, '   ');

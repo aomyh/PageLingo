@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PageLingo · 手动翻译浏览器检查</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;padding:26px;background:#f5f7f0;color:#283020;font:14px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}main{max-width:1260px;margin:auto}h1{font-size:24px;margin:0 0 10px}p{color:#78836c;line-height:1.7}button{padding:11px 18px;border:0;border-radius:7px;background:#c7ef65;color:#344329;font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.controls{display:flex;align-items:center;gap:16px;margin:18px 0}#summary{font-weight:650}.columns{display:grid;grid-template-columns:460px minmax(0,1fr);gap:24px;align-items:start}iframe{display:block;width:460px;height:680px;border:1px solid #dde4d4;background:#fbfcf8;border-radius:10px}section{background:white;border:1px solid #e0e6d8;border-radius:9px;padding:18px}ol{margin:10px 0;padding-left:22px}li{margin:10px 0;line-height:1.6}.pass{color:#537629}.fail{color:#a34431}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 monospace;color:#68745b}#error{color:#a34431}@media(max-width:850px){.columns{grid-template-columns:1fr}.frame-wrap{overflow:auto}}
+  </style>
+</head>
+<body><main>
+  <h1>手动翻译 · 真实 DOM 集成检查</h1>
+  <p>加载正式 translate.html、CSS 与 JS，在业务模块之前注入 Chrome 接口与剪贴板模拟。所有响应和 Key 都是测试数据，不连接 AI 服务；原生窗口拖动与失焦保留由主流程单独实测。</p>
+  <div class="controls"><button id="run" type="button">运行手动翻译检查</button><span id="summary" role="status" aria-live="polite">等待运行</span></div>
+  <div class="columns"><div class="frame-wrap"><iframe id="manual-frame" title="正式手动翻译界面 · 模拟数据"></iframe></div><section><strong>检查结果</strong><ol id="results"></ol><pre id="metrics"></pre><pre id="error"></pre></section></div>
+</main><script src="manual-browser.js"></script></body>
+</html>

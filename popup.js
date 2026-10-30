@@ -1,4 +1,5 @@
 import { LANGUAGES, STORAGE_KEY, getSettings, saveSettings, isProviderReady, getProvider, extensionAvailable } from './lib/config.js';
+import { requestSelectionPermission } from './lib/permissions.js';
 
 const $ = (id) => document.getElementById(id);
 let settings;
@@ -9,7 +10,13 @@ let pageSupported = false;
 let languageChanged = false;
 let polling;
 let selectionPending = null;
+let selectionErrorMessage = '';
 let settingsRefreshEpoch = 0;
+const USAGE_STORAGE_KEY = 'pagelingo.usage.v1';
+let usageSummary = null;
+let usageState = 'loading';
+let usageRefreshEpoch = 0;
+let usageRefreshQueued = false;
 
 function message(text = '', isError = false) {
   $('status-message').textContent = text;
@@ -55,9 +62,59 @@ function renderSettings() {
   document.querySelectorAll('[data-mode]').forEach((button) => {
     button.setAttribute('aria-pressed', String(button.dataset.mode === settings.displayMode));
   });
-  $('speed-label').textContent = `${settings.concurrency} 路并行${settings.cacheEnabled ? ' · 本地缓存' : ''}`;
+  renderUsage();
   renderSelection();
   renderStatus();
+}
+
+function compactCount(value) {
+  const count = Number.isFinite(Number(value)) ? Math.max(0, Math.round(Number(value))) : 0;
+  if (count >= 1000000) return `${(count / 1000000).toFixed(1).replace(/\.0$/, '')}m`;
+  if (count >= 1000) return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return String(count);
+}
+
+function renderUsage() {
+  const shortcut = $('open-usage');
+  const speed = settings ? `${settings.concurrency} 路并行${settings.cacheEnabled ? ' · 本地缓存' : ''}` : '';
+  if (!extensionAvailable) {
+    $('usage-summary').textContent = '用量统计';
+    shortcut.title = `加载扩展后可查看本机用量。${speed}`;
+    return;
+  }
+  if (!usageSummary) {
+    $('usage-summary').textContent = usageState === 'error' ? '用量统计 · 暂不可用' : '今日用量 · 加载中';
+    shortcut.title = `点击查看用量统计。${speed}`;
+    return;
+  }
+  const count = name => Number.isFinite(Number(usageSummary[name])) ? Math.max(0, Math.round(Number(usageSummary[name]))) : 0;
+  const requests = count('requests'), tokens = count('totalTokens'), missing = count('requestsWithoutUsage');
+  const unknown = requests > 0 && count('requestsWithUsage') === 0;
+  $('usage-summary').textContent = `今日${missing && !unknown ? '已报' : ' '}${unknown ? '—' : compactCount(tokens)} Token · ${compactCount(requests)}次`;
+  const reporting = missing ? `${missing.toLocaleString()} 次请求未返回 Token；合计仅含已报告用量。` : 'Token 为服务商返回的用量，不是费用估算。';
+  shortcut.title = `今日 ${requests.toLocaleString()} 次 API 请求，已报告 ${tokens.toLocaleString()} Token。${reporting}${usageState === 'error' ? '暂时无法刷新，显示上次数据。' : ''}${speed}`;
+}
+
+async function refreshUsage() {
+  if (!extensionAvailable) { renderUsage(); return; }
+  const epoch = ++usageRefreshEpoch;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'GET_USAGE_STATS', period: 'today' });
+    if (epoch !== usageRefreshEpoch) return;
+    if (!result?.ok || !result.summary) throw new Error('用量统计暂不可用');
+    usageSummary = result.summary;
+    usageState = 'ready';
+  } catch {
+    if (epoch !== usageRefreshEpoch) return;
+    usageState = 'error';
+  }
+  renderUsage();
+}
+
+function queueUsageRefresh() {
+  if (usageRefreshQueued) return;
+  usageRefreshQueued = true;
+  void Promise.resolve().then(() => { usageRefreshQueued = false; return refreshUsage(); });
 }
 
 function renderSelection() {
@@ -74,25 +131,28 @@ async function toggleSelection(event) {
   const enabled = event.target.checked;
   selectionPending = enabled;
   renderSelection();
-  message();
   try {
     if (extensionAvailable) {
       // Keep this permission request in the original checkbox user gesture.
       // The background worker owns persistence, script registration and cancellation.
-      if (enabled && !await chrome.permissions.request({ origins: ['http://*/*', 'https://*/*'] })) {
+      if (enabled && !await requestSelectionPermission()) {
         throw new Error('未获得网页访问权限，划词翻译尚未开启。可再次打开开关并允许访问。');
       }
       const result = await chrome.runtime.sendMessage({ type: 'SET_SELECTION_ENABLED', enabled });
       if (!result?.ok) throw new Error(result?.error || '划词翻译设置失败，请重试。');
       settings = await getSettings();
-      message(enabled ? '划词翻译已开启。' : '划词翻译已关闭。');
     } else {
       settings = await saveSettings({ ...await getSettings(), selectionEnabled: enabled });
-      message('已保存预览设置，加载扩展后生效。');
+      $('selection-hint').textContent = '预览设置已保存，加载扩展后生效';
     }
+    // The switch's existing status supplies success feedback without adding a
+    // message box that resizes Chrome's popup and creates a scrollbar.
+    if (selectionErrorMessage && $('status-message').textContent === selectionErrorMessage) message();
+    selectionErrorMessage = '';
   } catch (error) {
     try { settings = await getSettings(); } catch { /* Retain the last confirmed state if storage is unavailable. */ }
-    message(error?.message || '划词翻译设置失败，请重试。', true);
+    selectionErrorMessage = error?.message || '划词翻译设置失败，请重试。';
+    message(selectionErrorMessage, true);
   } finally {
     selectionPending = null;
     renderSettings();
@@ -206,6 +266,32 @@ async function openOptions() {
   window.close();
 }
 
+async function openUsage() {
+  if (!extensionAvailable) { window.location.href = 'options.html#usage'; return; }
+  try {
+    await chrome.tabs.create({ url: chrome.runtime.getURL('options.html#usage') });
+    window.close();
+  } catch { message('无法打开用量统计，请重试。', true); }
+}
+
+async function openManual() {
+  const button = $('open-manual');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    if (!extensionAvailable) {
+      const translator = window.open('translate.html', 'pagelingo-manual-translator', 'popup,width=460,height=680');
+      if (!translator) throw new Error('请允许此页面打开翻译预览窗口。');
+      translator.focus();
+      return;
+    }
+    const result = await chrome.runtime.sendMessage({ type: 'OPEN_TEXT_TRANSLATOR' });
+    if (!result?.ok) throw new Error(result?.error || '无法打开手动翻译窗口，请重新加载扩展后重试。');
+    window.close();
+  } catch (error) { message(error.message || '无法打开手动翻译窗口，请重试。', true); }
+  finally { button.disabled = false; }
+}
+
 async function init() {
   LANGUAGES.forEach(({ code, name }) => {
     const option = document.createElement('option');
@@ -214,6 +300,8 @@ async function init() {
     $('target-language').append(option);
   });
   ['open-options', 'provider-settings', 'setup-button'].forEach((id) => $(id).addEventListener('click', openOptions));
+  $('open-usage').addEventListener('click', openUsage);
+  $('open-manual').addEventListener('click', openManual);
   $('translate-button').addEventListener('click', startTranslation);
   $('restore-button').addEventListener('click', restorePage);
   $('selection-enabled').addEventListener('change', toggleSelection);
@@ -244,8 +332,10 @@ async function init() {
     pageSupported = supportedUrl(tab?.url);
     chrome.storage?.onChanged?.addListener((changes, areaName) => {
       if (areaName === 'local' && changes[STORAGE_KEY]) void refreshStoredSettings();
+      if (areaName === 'local' && changes[USAGE_STORAGE_KEY]) queueUsageRefresh();
     });
     renderSettings();
+    void refreshUsage();
     if (!pageSupported) message('请在普通网页中使用翻译。浏览器内部页面和扩展商店不支持翻译。');
     await readPageStatus();
     polling = setInterval(readPageStatus, 1000);

@@ -24,9 +24,11 @@
       <p id="source-two">A new language is a new perspective.</p>
       <p id="source-three">Existing <a id="source-link" href="#fixture">links</a> and page text should stay unchanged.</p>
       <p id="html-source">HTML-like selection should be safe.</p>
+      <p id="stopped-release-source">A page widget may stop release events from bubbling.</p>
+      <p><span id="contents-source" style="display:contents">Visible text in a display contents wrapper.</span></p>
       <div id="cross-range" class="private"><p id="cross-start">Public opening.</p><form><label id="private-label">PRIVATE_FORM_TEXT<input value="PRIVATE_FORM_VALUE" aria-label="Private test input"></label></form><p id="cross-end">Public ending.</p></div>
       <div id="hidden-range" class="private"><p id="hidden-start">Visible opening.</p><span style="opacity:0">PRIVATE_HIDDEN_MIDDLE</span><p id="hidden-end">Visible ending.</p></div>
-      <pre><code id="private-code">PRIVATE_CODE_CONTENT</code></pre>
+      <pre><code id="public-code">const <span id="code-word">greeting</span> = 'Hello world';</code></pre>
     </article>
     <p class="note" translate="no">点击“选中示例并预览”可稳定展示翻译卡片；快捷关闭会立即移除卡片。页面中的英文仅为测试素材。</p>
   </div>

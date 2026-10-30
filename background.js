@@ -2,11 +2,18 @@ import { PROVIDERS, LANGUAGES, STORAGE_KEY, getSettings, getProvider, isProvider
 import { translateBatch, requestTranslations, validateEndpoint, TranslationError } from './lib/translator.js';
 import { cacheStats, clearTranslationCache } from './lib/cache.js';
 import { createSelectionManager, publicSettings } from './lib/selection.js';
+import { recordUsage, getUsageStats, clearUsageStats } from './lib/usage.js';
+import { createTextTranslatorWindowManager } from './lib/manual-window.js';
 
 const sessions = new Map();
 const cancelled = new Map();
+const manualSessions = new Map();
+const manualCancelled = new Map();
 const waiting = [];
 let activeRequests = 0;
+const textTranslatorWindow = createTextTranslatorWindowManager({
+  windows: chrome.windows, storage: chrome.storage.session, url: chrome.runtime.getURL('translate.html'),
+});
 
 function abortSelectionSessions() {
   for (const [key, session] of sessions) if (session.kind === 'selection') {
@@ -88,6 +95,21 @@ function sessionKey(sender, message) {
   return `${sender.tab.id}:${message.sessionId}`;
 }
 
+function manualKey(sender, message) {
+  if (typeof message.requestId !== 'string' || !/^[\w-]{1,128}$/.test(message.requestId)) throw new TranslationError('翻译请求无效，请重新开始。', 'INVALID_REQUEST');
+  // Popups need no active website tab. Chrome's document identity also keeps two
+  // copies of the same extension page from cancelling one another's requests.
+  return `${sender.url}:${sender.documentId || sender.tab?.id || 'ui'}:${message.requestId}`;
+}
+function pruneManualCancellations() {
+  const cutoff = Date.now() - 60000;
+  for (const [key, time] of manualCancelled) if (time < cutoff) manualCancelled.delete(key);
+  while (manualCancelled.size > 512) manualCancelled.delete(manualCancelled.keys().next().value);
+}
+function ensureManualActive(key, controller) {
+  if (controller.signal.aborted || manualCancelled.has(key)) throw new TranslationError('翻译已停止。', 'ABORTED');
+}
+
 async function handleMessage(message, sender) {
   if (!message || typeof message.type !== 'string') throw new TranslationError('无效请求。');
   const ui = trustedUI(sender);
@@ -130,6 +152,7 @@ async function handleMessage(message, sender) {
       const items = isSelection ? [{ id: 'selection', text: message.text.trim() }] : message.items;
       const result = await translateBatch(provider, config, language, items, {
         signal: session.controller.signal, scope: key, cacheEnabled: settings.cacheEnabled,
+        onUsage: recordUsage, kind,
         // Cache hits return immediately even when all remote request slots are busy.
         scheduleRequest: task => withPermit(settings.concurrency, session.controller.signal, task),
       });
@@ -151,6 +174,45 @@ async function handleMessage(message, sender) {
     return { ok: true };
   }
   if (!ui) throw new TranslationError('此操作仅可在插件配置页执行。');
+  if (message.type === 'OPEN_TEXT_TRANSLATOR') {
+    try { return { ok: true, windowId: await textTranslatorWindow.open() }; }
+    catch { throw new TranslationError('无法打开手动翻译窗口，请重试。'); }
+  }
+  if (message.type === 'CANCEL_TEXT_TRANSLATION') {
+    const key = manualKey(sender, message);
+    manualCancelled.set(key, Date.now());
+    pruneManualCancellations();
+    manualSessions.get(key)?.controller.abort();
+    return { ok: true };
+  }
+  if (message.type === 'TRANSLATE_TEXT') {
+    const key = manualKey(sender, message);
+    if (typeof message.text !== 'string' || !message.text.trim() || [...message.text].length > 5000) throw new TranslationError('请输入 1–5,000 字符的内容。', 'INVALID_TEXT');
+    pruneManualCancellations();
+    if (manualCancelled.has(key)) throw new TranslationError('翻译已停止。', 'ABORTED');
+    if (manualSessions.has(key)) throw new TranslationError('这段内容正在翻译，请稍候。', 'REQUEST_IN_PROGRESS');
+    if (manualSessions.size >= 32) throw new TranslationError('正在处理的翻译较多，请稍后重试。', 'TOO_MANY_REQUESTS');
+    const controller = new AbortController();
+    manualSessions.set(key, { controller, tabId: sender.tab?.id });
+    try {
+      const settings = await getSettings();
+      ensureManualActive(key, controller);
+      const provider = getProvider(settings), config = settings.providers[provider.id];
+      if (!isProviderReady(settings)) throw new TranslationError('请先在配置页填写 API Key 和模型。', 'MISSING_KEY');
+      const language = message.targetLanguage ?? settings.targetLanguage;
+      if (!LANGUAGES.some(item => item.code === language)) throw new TranslationError('不支持此目标语言。', 'INVALID_LANGUAGE');
+      if (!await hasEndpointPermission(config.baseUrl)) throw new TranslationError('尚未授权访问该 AI 服务，请在配置页点击保存并完成授权。', 'NO_PERMISSION');
+      ensureManualActive(key, controller);
+      const result = await translateBatch(provider, config, language, [{ id: 'manual', text: message.text.trim() }], {
+        signal: controller.signal, scope: `manual:${key}`, cacheEnabled: settings.cacheEnabled,
+        onUsage: recordUsage, kind: 'manual',
+        scheduleRequest: task => withPermit(settings.concurrency, controller.signal, task),
+      });
+      ensureManualActive(key, controller);
+      return { ok: true, text: result.translations[0].text, cached: result.translations[0].cached,
+        providerId: provider.id, model: config.model, targetLanguage: language };
+    } finally { manualSessions.delete(key); }
+  }
   if (message.type === 'TEST_CONNECTION') {
     const provider = PROVIDERS.find(item => item.id === message.providerId);
     if (!provider || !message.config) throw new TranslationError('服务商配置无效。');
@@ -162,11 +224,17 @@ async function handleMessage(message, sender) {
     const sample = message.text || 'Stay curious. The world is yours to explore.';
     if (typeof sample !== 'string' || !sample.trim() || sample.length > 2000) throw new TranslationError('测试文本无效或过长。');
     const started = performance.now();
-    const result = await requestTranslations(provider, config, language, [{ id: 'test', text: sample }], { retries: 0 });
+    const result = await requestTranslations(provider, config, language, [{ id: 'test', text: sample }], { retries: 0, onUsage: recordUsage, kind: 'test' });
     return { ok: true, latency: Math.round(performance.now() - started), preview: result[0].text };
   }
   if (message.type === 'CACHE_STATS') return { ok: true, ...await cacheStats() };
   if (message.type === 'CLEAR_CACHE') { await clearTranslationCache(); return { ok: true }; }
+  if (message.type === 'GET_USAGE_STATS') {
+    const period = message.period ?? 'today';
+    if (!['today', '7d', '30d', 'all'].includes(period)) throw new TranslationError('统计时间范围无效。');
+    return { ok: true, ...await getUsageStats({ period }) };
+  }
+  if (message.type === 'CLEAR_USAGE_STATS') { await clearUsageStats(); return { ok: true }; }
   throw new TranslationError('未知操作。');
 }
 
@@ -180,4 +248,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.tabs.onRemoved.addListener(tabId => {
   for (const [key, session] of sessions) if (key.startsWith(`${tabId}:`)) session.controller.abort();
+  for (const [key, session] of manualSessions) if (session.tabId === tabId) {
+    manualCancelled.set(key, Date.now());
+    session.controller.abort();
+  }
+  pruneManualCancellations();
 });

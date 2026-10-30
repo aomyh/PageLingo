@@ -14,7 +14,7 @@
   const settings = { selectionEnabled: false, targetLanguage: 'zh-CN', providerName: '模拟 AI', model: 'mock-model', ready: true };
   const delays = [];
   const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
-  const translations = { 'Stay curious. The world is yours to explore.': '保持好奇，世界等你探索。', 'A new language is a new perspective.': '一种新的语言，一种新的视角。', 'HTML-like selection should be safe.': '<img src=x onerror="alert(1)"> 这段 HTML 必须以文本显示。' };
+  const translations = { 'Stay curious. The world is yours to explore.': '保持好奇，世界等你探索。', 'A new language is a new perspective.': '一种新的语言，一种新的视角。', greeting: '问候语', 'HTML-like selection should be safe.': '<img src=x onerror="alert(1)"> 这段 HTML 必须以文本显示。' };
   window.chrome ||= {};
   window.chrome.runtime = {
     onMessage: { addListener(listener) { listeners.push(listener); } },
@@ -61,11 +61,41 @@
       check($('fixture').innerHTML === originalHTML && $('source-link') === link, '原文、链接、HTML 与节点身份均保持不变');
       release(); await wait(330); check(calls.length === 1, '相同选区的重复鼠标事件不会重复计费');
 
+      const stoppedSource = $('stopped-release-source');
+      let stoppedEvents = 0;
+      const stopRelease = event => { stoppedEvents++; event.stopPropagation(); };
+      stoppedSource.addEventListener('pointerup', stopRelease);
+      stoppedSource.addEventListener('mouseup', stopRelease);
+      stoppedSource.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+      select(stoppedSource);
+      stoppedSource.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }));
+      stoppedSource.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+      await until(() => status()?.state === 'complete' && calls.at(-1)?.text === stoppedSource.textContent, '页面阻止冒泡后的翻译');
+      check(stoppedEvents === 2, '网页阻止鼠标松开事件冒泡时，仍能触发划词翻译');
+      stoppedSource.removeEventListener('pointerup', stopRelease);
+      stoppedSource.removeEventListener('mouseup', stopRelease);
+
+      select($('contents-source')); release();
+      await until(() => status()?.state === 'complete' && calls.at(-1)?.text === $('contents-source').textContent, 'display:contents 可见文字');
+      check(getComputedStyle($('contents-source')).display === 'contents' && roots.get(host()).textContent.includes($('contents-source').textContent), '无自身布局框的 display:contents 可见文字可以划词翻译');
+
+      const codeNode = $('public-code'), codeWord = $('code-word'), codeText = codeWord.firstChild, codeHTML = codeNode.innerHTML;
+      select(codeWord); release();
+      await until(() => status()?.state === 'complete' && calls.at(-1)?.text === 'greeting', '代码块单词翻译');
+      check(roots.get(host()).textContent.includes('问候语') && codeNode.innerHTML === codeHTML && codeWord.firstChild === codeText, '显式划选代码块中的单词会显示译文，代码与原有节点保持不变');
+
+      const beforeBlur = calls.length;
+      $('source-one').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+      select($('source-one')); await wait(30); window.dispatchEvent(new Event('blur')); await wait(330);
+      const blurCanceled = !host() && calls.length === beforeBlur;
+      select($('source-two'));
+      await until(() => status()?.state === 'complete' && calls.length === beforeBlur + 1, '失焦后恢复键盘选区');
+      check(blurCanceled, '拖动中失焦会取消未完成选区，返回后键盘划选仍可翻译');
+
       const privateCount = calls.length;
-      select($('private-code')); release(); await wait(330);
       select($('cross-start'), $('cross-end')); release(); await wait(330);
       select($('hidden-start'), $('hidden-end')); release(); await wait(330);
-      check(calls.length === privateCount && calls.every(call => !call.text.includes('PRIVATE_')), '拒绝代码选区，以及跨过表单或 CSS 隐藏文本的选区');
+      check(calls.length === privateCount && calls.every(call => !call.text.includes('PRIVATE_')), '拒绝跨过表单或 CSS 隐藏文本的选区');
 
       select($('source-two')); // No pointer event: selectionchange is the keyboard path.
       await until(() => status()?.state === 'complete', '键盘选区翻译');

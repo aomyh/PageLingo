@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PageLingo · 弹窗布局检查</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;padding:28px;color:#283020;background:#f5f7f0;font:14px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}main{max-width:1160px;margin:auto}h1{font-size:24px;margin:0 0 10px}p{color:#879575;line-height:1.7}button{background:#c7ef65;border:0;border-radius:7px;padding:11px 18px;color:#344329;font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.controls{display:flex;gap:14px;align-items:center;margin:20px 0}.columns{display:grid;grid-template-columns:370px 1fr;gap:28px;align-items:start}iframe{display:block;width:370px;height:600px;border:0;background:#fafbf8;box-shadow:0 4px 24px #28302015;border-radius:10px}section{padding:20px;background:white;border:1px solid #e0e6d8;border-radius:10px}#summary{font-weight:600}#metrics{white-space:pre-wrap;font:12px/1.8 monospace;color:#7a866e;overflow-wrap:anywhere}li{margin:10px 0;line-height:1.6}.pass{color:#6c8c39}.fail{color:#a8533f}#error{color:#a8533f;white-space:pre-wrap;font:12px/1.7 monospace}@media(max-width:850px){.columns{grid-template-columns:1fr}}
+  </style>
+</head>
+<body><main>
+  <h1>弹窗布局 · 真实浏览器检查</h1>
+  <p>在 370 × 600 的 iframe 中运行正式 popup.html / CSS / JS。Chrome 接口使用模拟配置与响应，不读取真实 Key，不申请实际权限。</p>
+  <div class="controls"><button id="run">运行布局检查</button><label><input id="missing-key" type="checkbox">模拟未配置 Key</label><span id="summary">等待运行</span></div>
+  <div class="columns"><iframe id="popup-frame" title="真实 PageLingo 弹窗"></iframe><section><strong>布局与滚动指标</strong><pre id="metrics"></pre><ul id="results"></ul><pre id="error"></pre></section></div>
+</main><script src="popup-layout.js"></script></body>
+</html>

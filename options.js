@@ -1,4 +1,5 @@
 import { PROVIDERS, LANGUAGES, STORAGE_KEY, getSettings, saveSettings, isProviderReady, getProvider, extensionAvailable, validateEndpoint } from './lib/config.js';
+import { requestSelectionPermission } from './lib/permissions.js';
 
 const $ = id => document.getElementById(id);
 let settings = await getSettings();
@@ -7,6 +8,14 @@ let selectedMode = settings.displayMode;
 let toastTimer;
 let testing = false;
 const drafts = new Map();
+const USAGE_STORAGE_KEY = 'pagelingo.usage.v1';
+const usagePeriods = new Set(['today', '7d', '30d', 'all']);
+let usagePeriod = 'today';
+let usageRequest = 0;
+let usageTimer;
+let usageChangeTimer;
+let usageClearing = false;
+let usageHasSnapshot = false;
 
 function notify(message) {
   $('toast-text').textContent = message;
@@ -158,6 +167,7 @@ const views = {
   providers: ['AI 服务商', '让语言，不再是边界', '连接你信赖的 AI，让每个网页都像母语一样自然。'],
   preferences: ['翻译偏好', '用你熟悉的方式，阅读世界', '选择一种语言，找到属于你的阅读节奏。'],
   performance: ['速度与缓存', '少一点等待，多一点流畅', '让文本优先抵达，让好奇心持续向前。'],
+  usage: ['用量统计', '每一次翻译，都心中有数', '查看请求、Token 与缓存，了解你的 AI 翻译用量。'],
 };
 function showView(view) {
   if (!views[view]) return;
@@ -168,6 +178,17 @@ function showView(view) {
   $('page-title').replaceChildren(document.createTextNode(views[view][1]), dot);
   $('page-description').textContent = views[view][2];
   if (view === 'performance') refreshCacheStats();
+  clearInterval(usageTimer);
+  if (view === 'usage') {
+    refreshUsageStats();
+    if (extensionAvailable) usageTimer = setInterval(() => {
+      if (!document.hidden && !usageClearing) refreshUsageStats({ quiet: true });
+    }, 5000);
+  } else {
+    ++usageRequest;
+    setUsageBusy(false);
+    closeUsageReset();
+  }
   history.replaceState(null, '', `#${view}`);
 }
 document.querySelectorAll('[data-view]').forEach(el => el.addEventListener('click', () => showView(el.dataset.view)));
@@ -185,7 +206,7 @@ $('selection-enabled').addEventListener('change', async event => {
   try {
     // Request synchronously from the checkbox gesture, before any storage/network work.
     const permission = extensionAvailable && enabled
-      ? chrome.permissions.request({ origins: ['http://*/*', 'https://*/*'] })
+      ? requestSelectionPermission()
       : Promise.resolve(true);
     if (!await permission) throw new Error('未获得网页访问权限，划词翻译保持关闭。');
     if (extensionAvailable) {
@@ -257,6 +278,233 @@ $('clear-cache').addEventListener('click', async () => {
   catch { notify('缓存清理失败，请重试'); }
   finally { $('clear-cache').disabled = false; }
 });
+
+function usageNumber(value) {
+  return Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0);
+}
+function usageCount(value) { return usageNumber(value).toLocaleString('zh-CN'); }
+function usageTimestamp(value) {
+  if (value == null || value === '') return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
+}
+function usagePercent(value) {
+  return `${Math.min(100, usageNumber(value)).toLocaleString('zh-CN', { maximumFractionDigits: 1 })}%`;
+}
+function usageStatus(message = '', error = false) {
+  $('usage-status').textContent = message;
+  $('usage-status').hidden = !message;
+  $('usage-status').classList.toggle('error', error);
+}
+function setUsageBusy(busy) {
+  $('usage-content').setAttribute('aria-busy', String(busy));
+  $('refresh-usage').disabled = busy || !extensionAvailable || usageClearing;
+  $('refresh-usage').querySelector('span').textContent = busy ? '正在刷新…' : '刷新统计';
+}
+function emptyUsageDays() {
+  const length = usagePeriod === '7d' ? 7 : usagePeriod === '30d' || usagePeriod === 'all' ? 30 : 1;
+  return Array.from({ length }, (_, index) => {
+    const day = new Date();
+    day.setDate(day.getDate() - length + index + 1);
+    return { date: `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`, requests: 0 };
+  });
+}
+function usageDayLabel(date) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date));
+  return match ? `${Number(match[2])}/${Number(match[3])}` : String(date || '');
+}
+function renderUsageChart(days) {
+  const visibleDays = (Array.isArray(days) && days.length ? days : emptyUsageDays()).slice(-30);
+  const maximum = Math.max(0, ...visibleDays.map(day => usageNumber(day.requests)));
+  $('usage-chart-max').textContent = usageCount(maximum);
+  $('usage-chart-empty').hidden = maximum > 0;
+  $('usage-chart').style.setProperty('--usage-columns', String(visibleDays.length));
+  $('usage-chart').replaceChildren(...visibleDays.map((day, index) => {
+    const requests = usageNumber(day.requests);
+    const bar = document.createElement('div');
+    bar.className = 'usage-bar';
+    bar.setAttribute('role', 'listitem');
+    bar.title = `${day.date} · ${usageCount(requests)} 次 API 请求`;
+    bar.setAttribute('aria-label', bar.title);
+    const column = document.createElement('div'); column.className = 'usage-bar-column';
+    const fill = document.createElement('span'); fill.className = 'usage-bar-fill';
+    fill.style.height = `${maximum ? requests / maximum * 100 : 0}%`;
+    column.append(fill);
+    const label = document.createElement('span'); label.className = 'usage-bar-label';
+    label.setAttribute('aria-hidden', 'true');
+    const interval = visibleDays.length > 15 ? 5 : visibleDays.length > 10 ? 2 : 1;
+    label.textContent = index % interval === 0 || index === visibleDays.length - 1 ? usageDayLabel(day.date) : '';
+    bar.append(column, label);
+    return bar;
+  }));
+  const range = visibleDays.length ? `${visibleDays[0].date} — ${visibleDays.at(-1).date}` : '';
+  $('usage-chart-caption').textContent = `每日 API 请求次数 · ${range}${usagePeriod === 'all' ? '（上方为累计汇总）' : ''}`;
+}
+function renderUsageBreakdown(breakdown) {
+  const rows = Array.isArray(breakdown) ? breakdown : [];
+  $('usage-breakdown-empty').hidden = rows.length > 0;
+  $('usage-breakdown').replaceChildren(...rows.map(row => {
+    const tr = document.createElement('tr');
+    const providerCell = document.createElement('td');
+    const name = document.createElement('strong');
+    name.textContent = row.providerId === 'other' ? '其他' : PROVIDERS.find(provider => provider.id === row.providerId)?.name || String(row.providerId || '未知服务商');
+    const model = document.createElement('span'); model.className = 'usage-model'; model.textContent = String(row.model || '未记录模型');
+    providerCell.append(name, model);
+    const requests = document.createElement('td'); requests.textContent = usageCount(row.requests);
+    const requestDetail = document.createElement('span'); requestDetail.className = 'usage-cell-detail';
+    requestDetail.textContent = `成功 ${usageCount(row.successfulRequests)} · 失败 ${usageCount(row.failedRequests)}`;
+    requests.append(requestDetail);
+    const characters = document.createElement('td'); characters.textContent = usageCount(row.translatedCharacters);
+    const tokens = document.createElement('td');
+    tokens.textContent = usageNumber(row.requests) && !usageNumber(row.requestsWithUsage) ? '—' : usageCount(row.totalTokens);
+    const tokenDetail = document.createElement('span'); tokenDetail.className = 'usage-cell-detail';
+    tokenDetail.textContent = usageNumber(row.requestsWithoutUsage)
+      ? `${usageCount(row.requestsWithoutUsage)} 次未返回 Token`
+      : `输入 ${usageCount(row.inputTokens)} · 输出 ${usageCount(row.outputTokens)}`;
+    tokens.append(tokenDetail);
+    const cache = document.createElement('td');
+    cache.textContent = usageNumber(row.totalItems) ? usagePercent(row.cacheHitRate ?? usageNumber(row.cacheHits) / usageNumber(row.totalItems) * 100) : '—';
+    const cacheDetail = document.createElement('span'); cacheDetail.className = 'usage-cell-detail'; cacheDetail.textContent = `${usageCount(row.cacheHits)} 段命中`;
+    cache.append(cacheDetail);
+    tr.append(providerCell, requests, characters, tokens, cache);
+    return tr;
+  }));
+}
+function renderUsageStats(result) {
+  const summary = result.summary || {};
+  const requests = usageNumber(summary.requests);
+  const missing = usageNumber(summary.requestsWithoutUsage);
+  const hasTokenUsage = usageNumber(summary.requestsWithUsage) > 0;
+  $('usage-requests').textContent = usageCount(requests);
+  $('usage-request-detail').textContent = `成功 ${usageCount(summary.successfulRequests)} · 失败 ${usageCount(summary.failedRequests)} · 取消 ${usageCount(summary.cancelledRequests)}`;
+  $('usage-characters').textContent = usageCount(summary.translatedCharacters);
+  $('usage-character-detail').textContent = usageNumber(summary.translatedItems)
+    ? `${usageCount(summary.translatedItems)} 段内容 · 含 ${usageCount(summary.cacheHits)} 段缓存复用`
+    : '暂无成功翻译片段';
+  $('usage-tokens').textContent = requests && !hasTokenUsage ? '—' : usageCount(summary.totalTokens);
+  $('usage-token-detail').textContent = requests && !hasTokenUsage
+    ? '服务商尚未返回 Token 用量'
+    : `输入 ${usageCount(summary.inputTokens)} · 输出 ${usageCount(summary.outputTokens)}`;
+  $('usage-cache-rate').textContent = usageNumber(summary.totalItems)
+    ? usagePercent(summary.cacheHitRate ?? usageNumber(summary.cacheHits) / usageNumber(summary.totalItems) * 100) : '—';
+  $('usage-cache-detail').textContent = usageNumber(summary.totalItems)
+    ? `${usageCount(summary.cacheHits)} / ${usageCount(summary.totalItems)} 段直接复用缓存` : '暂无翻译片段';
+  $('usage-success-rate').textContent = requests ? usagePercent(usageNumber(summary.successfulRequests) / requests * 100) : '—';
+  $('usage-retry-detail').textContent = requests ? `包含 ${usageCount(summary.retries)} 次自动重试` : '暂无 API 请求';
+  $('usage-latency').textContent = requests
+    ? `${(usageNumber(summary.averageLatencyMs ?? usageNumber(summary.durationMs) / requests) / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 秒` : '—';
+  $('usage-token-note').classList.toggle('incomplete', missing > 0);
+  $('usage-token-note').textContent = `${missing ? `${usageCount(missing)} 次请求未返回 Token，用量合计不完整。` : ''}Token 仅汇总服务商实际返回的数据，不估算用量或费用，也不代表账户账单。${usageNumber(summary.cachedInputTokens) ? `其中缓存输入 ${usageCount(summary.cachedInputTokens)} Token，已计入输入。` : ''}`;
+  renderUsageChart(result.days);
+  $('usage-chart-empty').textContent = usageNumber(summary.translatedItems) || requests
+    ? '图中时段暂无 API 请求。直接复用缓存不会产生新的 API 请求。'
+    : '还没有使用记录。开始一次网页或划词翻译，统计会自动出现在这里。';
+  renderUsageBreakdown(result.breakdown);
+  $('usage-breakdown-note').textContent = result.breakdownCompacted
+    ? '为控制本机存储占用，部分模型明细已合并为“其他”；总量保持完整。'
+    : '了解每一个翻译引擎的实际使用情况。';
+  const updated = usageTimestamp(result.updatedAt);
+  const started = usageTimestamp(result.startedAt);
+  const dateOptions = { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+  if (result.timezone) dateOptions.timeZone = result.timezone;
+  try {
+    $('usage-updated').textContent = updated > 0
+      ? `上次记录 ${new Date(updated).toLocaleString('zh-CN', dateOptions)}${result.timezone ? `（${result.timezone}）` : ''}。${started > 0 ? `自 ${new Date(started).toLocaleDateString('zh-CN', { ...(result.timezone ? { timeZone: result.timezone } : {}) })} 起累计。` : ''}`
+      : '从安装此版本后开始累计。';
+  } catch { $('usage-updated').textContent = '从安装此版本后开始累计。'; }
+}
+async function refreshUsageStats({ quiet = false } = {}) {
+  if (usageClearing) return;
+  const request = ++usageRequest;
+  const period = usagePeriod;
+  if (!extensionAvailable) {
+    renderUsageStats({ summary: {}, days: emptyUsageDays(), breakdown: [] });
+    $('usage-content').hidden = false;
+    usageStatus('当前为页面预览，无法读取真实用量。加载 Chrome 扩展后，统计会从首次使用开始累计。');
+    $('reset-usage').disabled = true;
+    setUsageBusy(false);
+    return;
+  }
+  if (!quiet) {
+    setUsageBusy(true);
+    if (!usageHasSnapshot) {
+      $('usage-content').hidden = true;
+      $('reset-usage').disabled = true;
+      usageStatus('正在读取本地用量统计…');
+    }
+  }
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'GET_USAGE_STATS', period });
+    if (request !== usageRequest || $('view-usage').hidden) return;
+    if (!result?.ok) throw new Error(result?.error || '无法读取用量统计，请稍后刷新重试。');
+    usageHasSnapshot = true;
+    renderUsageStats(result);
+    $('usage-content').hidden = false;
+    $('reset-usage').disabled = false;
+    usageStatus();
+  } catch (error) {
+    if (request !== usageRequest || $('view-usage').hidden) return;
+    usageStatus(`${error.message || '无法读取用量统计，请稍后刷新重试。'}${usageHasSnapshot ? ' 当前显示上一次成功读取的数据。' : ''}`, true);
+  } finally {
+    if (request === usageRequest) setUsageBusy(false);
+  }
+}
+function closeUsageReset() {
+  if (usageClearing) return;
+  $('usage-reset-confirm').hidden = true;
+  $('reset-usage').hidden = false;
+}
+document.querySelectorAll('[data-usage-period]').forEach(button => button.addEventListener('click', () => {
+  if (!usagePeriods.has(button.dataset.usagePeriod) || usageClearing) return;
+  usagePeriod = button.dataset.usagePeriod;
+  document.querySelectorAll('[data-usage-period]').forEach(control => control.setAttribute('aria-pressed', String(control.dataset.usagePeriod === usagePeriod)));
+  closeUsageReset();
+  refreshUsageStats();
+}));
+$('refresh-usage').addEventListener('click', () => refreshUsageStats());
+$('reset-usage').addEventListener('click', () => {
+  if (!extensionAvailable || usageClearing) return;
+  $('usage-reset-confirm').hidden = false;
+  $('reset-usage').hidden = true;
+  $('cancel-reset-usage').focus();
+});
+$('cancel-reset-usage').addEventListener('click', () => { closeUsageReset(); $('reset-usage').focus(); });
+$('confirm-reset-usage').addEventListener('click', async () => {
+  if (!extensionAvailable || usageClearing) return;
+  usageClearing = true;
+  ++usageRequest;
+  $('confirm-reset-usage').disabled = true;
+  $('confirm-reset-usage').textContent = '正在清空…';
+  $('cancel-reset-usage').disabled = true;
+  $('refresh-usage').disabled = true;
+  document.querySelectorAll('[data-usage-period]').forEach(control => { control.disabled = true; });
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'CLEAR_USAGE_STATS' });
+    if (!result?.ok) throw new Error(result?.error || '统计清空失败，请重试。');
+    usageClearing = false;
+    closeUsageReset();
+    usageHasSnapshot = false;
+    await refreshUsageStats();
+    notify('用量统计已清空，AI 配置与翻译缓存已保留');
+  } catch (error) { usageStatus(error.message || '统计清空失败，请重试。', true); }
+  finally {
+    usageClearing = false;
+    $('confirm-reset-usage').disabled = false;
+    $('confirm-reset-usage').textContent = '确认清空';
+    $('cancel-reset-usage').disabled = false;
+    $('refresh-usage').disabled = false;
+    document.querySelectorAll('[data-usage-period]').forEach(control => { control.disabled = false; });
+  }
+});
+if (extensionAvailable) chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes[USAGE_STORAGE_KEY] || $('view-usage').hidden || document.hidden) return;
+  clearTimeout(usageChangeTimer);
+  usageChangeTimer = setTimeout(() => refreshUsageStats({ quiet: true }), 180);
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !$('view-usage').hidden) refreshUsageStats({ quiet: true });
+});
+window.addEventListener('pagehide', () => { clearInterval(usageTimer); clearTimeout(usageChangeTimer); });
 
 $('preview-banner').hidden = extensionAvailable;
 renderOverview(); renderProviderCards(); renderProviderForm(); renderDisplayMode(); showView(location.hash.slice(1) || 'providers');

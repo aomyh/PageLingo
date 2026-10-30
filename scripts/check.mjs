@@ -23,7 +23,7 @@ for (const file of jsFiles) {
   const result = spawnSync(process.execPath, ['--check', path.join(root, file)], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`${file}: ${result.stderr}`);
 }
-for (const htmlFile of ['options.html', 'popup.html']) {
+for (const htmlFile of ['options.html', 'popup.html', 'translate.html']) {
   const html = await readFile(path.join(root, htmlFile), 'utf8');
   if (/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?\S[\s\S]*?<\/script>/i.test(html)) throw new Error(`${htmlFile} has inline JavaScript incompatible with extension CSP`);
   for (const [, asset] of html.matchAll(/(?:src|href)="([^"#]+)"/g)) {

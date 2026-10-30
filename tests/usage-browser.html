@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PageLingo · 用量面板浏览器检查</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;padding:24px;background:#f5f7f0;color:#283020;font:14px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}main{max-width:1480px;margin:auto}h1{font-size:24px;margin:0 0 10px}p{color:#78836c;line-height:1.7}button{padding:11px 18px;border:0;border-radius:7px;background:#c7ef65;color:#344329;font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.controls{display:flex;align-items:center;gap:16px;margin:18px 0}#summary{font-weight:650}.columns{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}iframe{display:block;width:100%;height:920px;border:1px solid #dde4d4;background:#fbfcf8;border-radius:9px}section{background:white;border:1px solid #e0e6d8;border-radius:9px;padding:18px}ol{margin:10px 0;padding-left:22px}li{margin:10px 0;line-height:1.55}.pass{color:#537629}.fail{color:#a34431}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 monospace;color:#68745b}#error{color:#a34431}.fixture-only{display:none}@media(max-width:1100px){.columns{grid-template-columns:1fr}.columns>section{order:-1}iframe{min-width:760px}.frame-wrap{overflow:auto}}
+  </style>
+</head>
+<body><main>
+  <h1>用量统计 · 真实 DOM 集成检查</h1>
+  <p>加载正式 options.html、CSS 与 JS，在业务脚本执行前注入 Chrome 接口模拟。所有数字、模型响应与 Key 都是明确标注的测试数据；不会读取真实 Key 或调用 AI 服务。</p>
+  <div class="controls"><button id="run" type="button">运行用量面板检查</button><span id="summary" role="status" aria-live="polite">等待运行</span></div>
+  <div class="columns"><div class="frame-wrap"><iframe id="usage-frame" title="正式 PageLingo 用量面板 · 模拟数据"></iframe></div><section><strong>检查结果</strong><ol id="results"></ol><pre id="metrics"></pre><pre id="error"></pre></section></div>
+</main><script src="usage-browser.js"></script></body>
+</html>
