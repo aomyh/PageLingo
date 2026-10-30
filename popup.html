@@ -55,6 +55,16 @@
             <button id="mode-translated" type="button" data-mode="translated" aria-pressed="false">只看译文</button>
           </div>
         </div>
+        <div class="selection-row">
+          <div class="selection-copy">
+            <label for="selection-enabled">划词翻译 <span id="selection-state">已关闭</span></label>
+            <p id="selection-hint">选中文字即可翻译</p>
+          </div>
+          <label class="selection-switch">
+            <input id="selection-enabled" type="checkbox" role="switch" aria-label="划词翻译" aria-describedby="selection-hint" disabled>
+            <span aria-hidden="true"></span>
+          </label>
+        </div>
       </section>
 
       <section class="actions" aria-label="页面操作">

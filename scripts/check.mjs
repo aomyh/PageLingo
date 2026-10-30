@@ -6,7 +6,7 @@ import path from 'node:path';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
 if (manifest.manifest_version !== 3) throw new Error('Expected Manifest V3');
-for (const asset of [manifest.background.service_worker, manifest.action.default_popup, manifest.options_page, ...Object.values(manifest.icons), ...Object.values(manifest.action.default_icon)]) {
+for (const asset of [manifest.background.service_worker, manifest.action.default_popup, manifest.options_page, 'content.js', 'selection.js', ...Object.values(manifest.icons), ...Object.values(manifest.action.default_icon)]) {
   await access(path.join(root, asset));
 }
 const jsFiles = [];

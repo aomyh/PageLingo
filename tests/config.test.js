@@ -16,6 +16,13 @@ test('provider settings are independent and readiness requires model plus creden
   assert.equal(isProviderReady(settings), false);
 });
 
+test('selection translation is opt-in and old settings migrate without enabling it', () => {
+  assert.equal(defaultSettings().selectionEnabled, false);
+  assert.equal(normalizeSettings({ targetLanguage: 'en' }).selectionEnabled, false);
+  assert.equal(normalizeSettings({ selectionEnabled: true }).selectionEnabled, true);
+  for (const value of [false, 'true', 1, null]) assert.equal(normalizeSettings({ selectionEnabled: value }).selectionEnabled, false);
+});
+
 test('untrusted or stale settings cannot bypass concurrency, batch or enum boundaries', () => {
   const settings = normalizeSettings({ activeProvider: 'unknown', targetLanguage: 'made-up', displayMode: 'html', concurrency: 999, batchSize: -1,
     providers: { deepseek: { apiKey: '  test  ', baseUrl: 'https://api.deepseek.com/v1/', model: ' model-id ' } } });

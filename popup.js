@@ -1,4 +1,4 @@
-import { LANGUAGES, getSettings, saveSettings, isProviderReady, getProvider, extensionAvailable } from './lib/config.js';
+import { LANGUAGES, STORAGE_KEY, getSettings, saveSettings, isProviderReady, getProvider, extensionAvailable } from './lib/config.js';
 
 const $ = (id) => document.getElementById(id);
 let settings;
@@ -8,6 +8,8 @@ let busy = false;
 let pageSupported = false;
 let languageChanged = false;
 let polling;
+let selectionPending = null;
+let settingsRefreshEpoch = 0;
 
 function message(text = '', isError = false) {
   $('status-message').textContent = text;
@@ -32,6 +34,7 @@ function publicSettings() {
     batchSize: settings.batchSize,
     cacheEnabled: settings.cacheEnabled,
     translateDynamic: settings.translateDynamic,
+    selectionEnabled: settings.selectionEnabled,
     activeProvider: settings.activeProvider,
     providerName: provider.name,
     model: settings.providers[provider.id]?.model || provider.model,
@@ -53,7 +56,57 @@ function renderSettings() {
     button.setAttribute('aria-pressed', String(button.dataset.mode === settings.displayMode));
   });
   $('speed-label').textContent = `${settings.concurrency} 路并行${settings.cacheEnabled ? ' · 本地缓存' : ''}`;
+  renderSelection();
   renderStatus();
+}
+
+function renderSelection() {
+  const enabled = selectionPending ?? Boolean(settings?.selectionEnabled);
+  $('selection-enabled').checked = enabled;
+  $('selection-enabled').disabled = !settings || selectionPending !== null;
+  $('selection-enabled').setAttribute('aria-checked', String(enabled));
+  $('selection-state').textContent = selectionPending !== null ? '保存中…' : enabled ? '已开启' : '已关闭';
+  $('selection-state').classList.toggle('enabled', enabled);
+}
+
+async function toggleSelection(event) {
+  if (!settings || selectionPending !== null) { renderSelection(); return; }
+  const enabled = event.target.checked;
+  selectionPending = enabled;
+  renderSelection();
+  message();
+  try {
+    if (extensionAvailable) {
+      // Keep this permission request in the original checkbox user gesture.
+      // The background worker owns persistence, script registration and cancellation.
+      if (enabled && !await chrome.permissions.request({ origins: ['http://*/*', 'https://*/*'] })) {
+        throw new Error('未获得网页访问权限，划词翻译尚未开启。可再次打开开关并允许访问。');
+      }
+      const result = await chrome.runtime.sendMessage({ type: 'SET_SELECTION_ENABLED', enabled });
+      if (!result?.ok) throw new Error(result?.error || '划词翻译设置失败，请重试。');
+      settings = await getSettings();
+      message(enabled ? '划词翻译已开启。' : '划词翻译已关闭。');
+    } else {
+      settings = await saveSettings({ ...await getSettings(), selectionEnabled: enabled });
+      message('已保存预览设置，加载扩展后生效。');
+    }
+  } catch (error) {
+    try { settings = await getSettings(); } catch { /* Retain the last confirmed state if storage is unavailable. */ }
+    message(error?.message || '划词翻译设置失败，请重试。', true);
+  } finally {
+    selectionPending = null;
+    renderSettings();
+  }
+}
+
+async function refreshStoredSettings() {
+  const epoch = ++settingsRefreshEpoch;
+  try {
+    const latest = await getSettings();
+    if (epoch !== settingsRefreshEpoch) return;
+    settings = latest;
+    renderSettings();
+  } catch { /* Keep the current controls usable if a background refresh fails. */ }
 }
 
 function renderStatus() {
@@ -163,6 +216,7 @@ async function init() {
   ['open-options', 'provider-settings', 'setup-button'].forEach((id) => $(id).addEventListener('click', openOptions));
   $('translate-button').addEventListener('click', startTranslation);
   $('restore-button').addEventListener('click', restorePage);
+  $('selection-enabled').addEventListener('change', toggleSelection);
   $('target-language').addEventListener('change', async (event) => {
     const saved = await persistPreference({ targetLanguage: event.target.value });
     if (saved && pageStatus.completed > 0) {
@@ -188,6 +242,9 @@ async function init() {
     }
     [settings, [tab]] = await Promise.all([getSettings(), chrome.tabs.query({ active: true, currentWindow: true })]);
     pageSupported = supportedUrl(tab?.url);
+    chrome.storage?.onChanged?.addListener((changes, areaName) => {
+      if (areaName === 'local' && changes[STORAGE_KEY]) void refreshStoredSettings();
+    });
     renderSettings();
     if (!pageSupported) message('请在普通网页中使用翻译。浏览器内部页面和扩展商店不支持翻译。');
     await readPageStatus();

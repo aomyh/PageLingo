@@ -4,3 +4,9 @@
 .select-wrap select{padding-left:12px;padding-right:36px;background-image:url('./assets/chevron-down.svg');background-repeat:no-repeat;background-position:right 12px center;background-size:12px 12px}
 .select-wrap>svg{display:none}
 @media(forced-colors:active){.select-wrap select{appearance:auto;background-image:none;padding-right:12px}}
+/* Keep the selection shortcut within easy reach in Chrome's compact popup. */
+.popup{padding-top:20px}.intro{padding:22px 0 16px}.preferences{margin:14px 0 16px}.field-row{padding:8px 0}.mode-row{margin-top:0}
+.selection-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:9px;padding-top:13px;border-top:1px solid var(--border)}
+.selection-copy label{font-size:12px;color:#6a7062;cursor:pointer}.selection-copy p{font-size:10px;color:#9a9f90;margin:5px 0 0}.selection-copy label>span{font-size:9px;color:#a2a795;margin-left:7px}.selection-copy label>span.enabled{color:#789b44}
+.selection-switch{position:relative;display:inline-flex;width:36px;height:21px;flex-shrink:0;cursor:pointer}.selection-switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:1}.selection-switch>span{width:100%;height:100%;border-radius:20px;background:#dfe5d5;transition:background .15s}.selection-switch>span:before{content:'';display:block;width:15px;height:15px;margin:3px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #25361a20;transition:transform .15s}.selection-switch input:checked+span{background:#a4c86b}.selection-switch input:checked+span:before{transform:translateX(15px)}.selection-switch input:focus-visible+span{outline:2px solid #6d932d;outline-offset:4px}.selection-switch input:disabled{cursor:wait}.selection-switch input:disabled+span{opacity:.65}
+@media(forced-colors:active){.selection-switch input{position:static;opacity:1;appearance:auto}.selection-switch>span{display:none}}

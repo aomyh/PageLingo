@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PageLingo · 划词翻译浏览器测试</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f6f8f1;color:#2b3322;font:14px/1.8 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}main{max-width:1180px;margin:32px auto;padding:0 24px;display:grid;grid-template-columns:1.15fr 1fr;gap:24px}.controls,article{background:#fff;border:1px solid #e0e7d5;border-radius:16px;padding:24px 28px}h1{font-size:24px;line-height:1.4;letter-spacing:-.5px;margin:8px 0 12px}.eyebrow{font-size:10px;color:#8a9b72;letter-spacing:2px}p{color:#81916d}.buttons{display:flex;flex-wrap:wrap;gap:9px}button{font:inherit;font-size:12px;background:#c7ef65;border:0;border-radius:7px;color:#43532d;cursor:pointer;padding:9px 12px}button.secondary{background:#eff3e6}button:disabled{opacity:.5;cursor:wait}#summary{font-weight:650;margin:17px 0}#results{padding:0;list-style:none;font-size:12px}#results li{padding:6px 0;border-top:1px solid #edf1e4}#results .pass:before{content:'✓ ';color:#729542}#results .fail:before{content:'✕ ';color:#bb6854}#error-log{font-size:11px;color:#bb6854;white-space:pre-wrap}.fixture-column{position:sticky;top:24px;align-self:start}article h2{font-size:20px;line-height:1.4}article p{color:#61734d}a{color:#739945}.private{font-size:11px;color:#9eaa8e;border:1px dashed #e0e6d4;border-radius:7px;padding:8px 12px;margin:15px 0}.private p{margin:5px 0}.note{font-size:11px;color:#a1ad91;margin-top:18px}code{font-size:11px}#switch-state{font-size:11px;color:#8a9b71}@media(max-width:800px){main{display:block}.fixture-column{position:static;margin-top:24px}}
+  </style>
+  <script defer src="selection-browser.js"></script>
+  <script defer src="../selection.js"></script>
+</head>
+<body><main>
+  <section class="controls" translate="no">
+    <span class="eyebrow">PAGELINGO / SELECTION TRANSLATION</span>
+    <h1>划词翻译 · 真实浏览器验证</h1>
+    <p>运行正式 selection.js，使用原生 Selection、Range 与 Shadow DOM。模型响应为模拟数据，不使用真实 Key。</p>
+    <div class="buttons"><button id="run" type="button">运行划词翻译测试</button><button id="preview" class="secondary" type="button">选中示例并预览</button><button id="disable" class="secondary" type="button">模拟快捷关闭</button></div>
+    <div id="switch-state">划词翻译：关闭</div><div id="summary" role="status">等待运行</div><ul id="results"></ul><pre id="error-log"></pre>
+  </section>
+  <div class="fixture-column">
+    <article id="fixture">
+      <h2>A little curiosity opens a bigger world.</h2>
+      <p id="source-one">Stay curious. The world is yours to explore.</p>
+      <p id="source-two">A new language is a new perspective.</p>
+      <p id="source-three">Existing <a id="source-link" href="#fixture">links</a> and page text should stay unchanged.</p>
+      <p id="html-source">HTML-like selection should be safe.</p>
+      <div id="cross-range" class="private"><p id="cross-start">Public opening.</p><form><label id="private-label">PRIVATE_FORM_TEXT<input value="PRIVATE_FORM_VALUE" aria-label="Private test input"></label></form><p id="cross-end">Public ending.</p></div>
+      <div id="hidden-range" class="private"><p id="hidden-start">Visible opening.</p><span style="opacity:0">PRIVATE_HIDDEN_MIDDLE</span><p id="hidden-end">Visible ending.</p></div>
+      <pre><code id="private-code">PRIVATE_CODE_CONTENT</code></pre>
+    </article>
+    <p class="note" translate="no">点击“选中示例并预览”可稳定展示翻译卡片；快捷关闭会立即移除卡片。页面中的英文仅为测试素材。</p>
+  </div>
+</main></body></html>

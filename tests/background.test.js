@@ -5,19 +5,36 @@ let listener;
 let permission = true;
 let openedOptions = false;
 let storageProtection;
+let changedListener, removedListener, startupListener;
+let registeredScripts = [];
+const selectionMessages = [];
+const selectionInjections = [];
 let settings = { activeProvider: 'custom', concurrency: 2, cacheEnabled: false, providers: { custom: { apiKey: 'private-key-do-not-expose', model: 'test-model', baseUrl: 'https://api.example.com/v1' } } };
 globalThis.chrome = {
   runtime: {
     id: 'extension-id', getURL: path => `chrome-extension://extension-id/${path}`,
     onMessage: { addListener: fn => { listener = fn; } },
     onInstalled: { addListener: () => {} }, openOptionsPage: () => { openedOptions = true; },
+    onStartup: { addListener: fn => { startupListener = fn; } },
   },
   storage: { local: {
     get: async key => ({ [key]: settings }),
+    set: async values => {
+      const [key, value] = Object.entries(values)[0];
+      const previous = settings;
+      settings = value;
+      queueMicrotask(() => changedListener?.({ [key]: { oldValue: previous, newValue: value } }, 'local'));
+    },
     setAccessLevel: async options => { storageProtection = options; },
-  } },
-  permissions: { contains: async () => permission },
-  tabs: { onRemoved: { addListener: () => {} } },
+  }, onChanged: { addListener: fn => { changedListener = fn; } } },
+  permissions: { contains: async () => permission, onRemoved: { addListener: fn => { removedListener = fn; } } },
+  tabs: { onRemoved: { addListener: () => {} }, query: async () => [{ id: 7, url: 'https://news.example.com/article' }], sendMessage: async (id, value) => { selectionMessages.push({ id, value }); return { ok: true }; } },
+  scripting: {
+    getRegisteredContentScripts: async () => registeredScripts,
+    registerContentScripts: async scripts => { registeredScripts = scripts; },
+    unregisterContentScripts: async () => { registeredScripts = []; },
+    executeScript: async value => { selectionInjections.push(value); },
+  },
 };
 await import('../background.js');
 
@@ -114,4 +131,89 @@ test('cache administration is available to extension UI', async () => {
   const stats = await message({ type: 'CACHE_STATS' });
   assert.equal(stats.ok, true); assert.equal(typeof stats.entries, 'number'); assert.equal(typeof stats.bytes, 'number');
   assert.deepEqual(await message({ type: 'CLEAR_CACHE' }), { ok: true });
+});
+
+test('selection toggle is trusted-UI-only and enabling without optional grants cannot persist', async () => {
+  const blocked = await message({ type: 'SET_SELECTION_ENABLED', enabled: true }, content);
+  assert.equal(blocked.ok, false);
+  permission = false;
+  const denied = await message({ type: 'SET_SELECTION_ENABLED', enabled: true });
+  assert.equal(denied.ok, false);
+  assert.notEqual(settings.selectionEnabled, true);
+  permission = true;
+  const invalid = await message({ type: 'SET_SELECTION_ENABLED', enabled: 'true' });
+  assert.equal(invalid.ok, false);
+});
+
+test('selection requests are gated off, bounded and cached through the shared translation engine', async () => {
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => { calls++; return translationResponse(options, '选中文本的译文'); };
+  const request = { type: 'TRANSLATE_SELECTION', sessionId: 'selection-first', text: 'Selected source text' };
+  const disabled = await message(request, content);
+  assert.equal(disabled.ok, false); assert.equal(disabled.code, 'SELECTION_DISABLED'); assert.equal(calls, 0);
+  const enable = await message({ type: 'SET_SELECTION_ENABLED', enabled: true });
+  assert.equal(enable.ok, true); assert.equal(enable.settings.selectionEnabled, true);
+  assert.equal(settings.selectionEnabled, true); assert.equal(registeredScripts[0].id, 'pagelingo-selection');
+  assert.equal(selectionInjections.some(value => value.target.tabId === 7), true);
+  assert.equal(JSON.stringify(enable).includes('private-key'), false);
+  for (const text of ['', '  ', 'x'.repeat(5001)]) {
+    const invalid = await message({ ...request, text }, content);
+    assert.equal(invalid.ok, false); assert.equal(invalid.code, 'INVALID_SELECTION');
+  }
+  const uiRequest = await message(request);
+  assert.equal(uiRequest.ok, false);
+  settings.cacheEnabled = true;
+  const first = await message(request, content);
+  assert.equal(first.ok, true); assert.equal(first.text, '选中文本的译文'); assert.equal(first.cached, false);
+  const second = await message({ ...request, sessionId: 'selection-repeat' }, content);
+  assert.equal(second.ok, true); assert.equal(second.cached, true); assert.equal(calls, 1);
+  settings.cacheEnabled = false;
+});
+
+test('quick disable aborts active selection work without interrupting a page translation', async () => {
+  let finishPage, pageSignal, pageStarted, selectionStarted;
+  const firstStarted = new Promise(resolve => { pageStarted = resolve; });
+  const secondStarted = new Promise(resolve => { selectionStarted = resolve; });
+  globalThis.fetch = async (_url, options) => {
+    const items = JSON.parse(JSON.parse(options.body).messages[1].content);
+    if (items[0].text === 'Page translation stays active') {
+      pageSignal = options.signal;
+      pageStarted();
+      return new Promise(resolve => { finishPage = () => resolve(translationResponse(options, '页面译文')); });
+    }
+    selectionStarted();
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }));
+  };
+  const page = message(batch('page-with-selection', 'Page translation stays active'), content);
+  const selectionRequest = { type: 'TRANSLATE_SELECTION', sessionId: 'selection-disable-active', text: 'Selection is cancelled' };
+  const selection = message(selectionRequest, content);
+  await Promise.all([firstStarted, secondStarted]);
+  const off = await message({ type: 'SET_SELECTION_ENABLED', enabled: false });
+  assert.equal(off.ok, true); assert.equal(off.settings.selectionEnabled, false);
+  assert.equal(pageSignal.aborted, false, 'page translation uses a separate cancellation scope');
+  assert.equal(registeredScripts.length, 0);
+  assert.equal(selectionMessages.at(-1).value.settings.selectionEnabled, false);
+  const cancelled = await selection;
+  assert.equal(cancelled.ok, false); assert.ok(['ABORTED', 'SELECTION_DISABLED'].includes(cancelled.code));
+  finishPage();
+  assert.equal((await page).ok, true);
+  const late = await message(selectionRequest, content);
+  assert.equal(late.ok, false);
+  const newWhileOff = await message({ ...selectionRequest, sessionId: 'selection-new-disabled' }, content);
+  assert.equal(newWhileOff.code, 'SELECTION_DISABLED');
+});
+
+test('startup restores enabled registration and removed webpage permission turns the feature off', async () => {
+  await message({ type: 'SET_SELECTION_ENABLED', enabled: true });
+  registeredScripts = [];
+  startupListener();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(registeredScripts[0].id, 'pagelingo-selection');
+  permission = false;
+  removedListener({ origins: ['https://*/*'] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settings.selectionEnabled, false);
+  assert.equal(registeredScripts.length, 0);
+  assert.equal(selectionMessages.at(-1).value.settings.selectionEnabled, false);
+  permission = true;
 });

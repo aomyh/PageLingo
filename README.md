@@ -6,13 +6,21 @@
 
 1. 在 Chrome 地址栏打开 `chrome://extensions`。
 2. 打开右上角「开发者模式」。
-3. 点击「加载已解压的扩展程序」，选择当前 `PageLingo` 目录（包含 `manifest.json` 的这一层）。也可以使用 `npm run package` 生成的 `dist/PageLingo-1.0.0` 目录。
+3. 点击「加载已解压的扩展程序」，选择当前 `PageLingo` 目录（包含 `manifest.json` 的这一层）。也可以使用 `npm run package` 生成的 `dist/PageLingo-1.1.0` 目录。
 4. 在打开的配置页选择服务商，填写 API Key 和模型，点击「保存并使用」。Chrome 会只请求该 API 域名的访问权限。
 5. 可点击「测试连接」查看示例译文和本次实际耗时。之后打开一个普通网页，点击扩展图标 →「翻译当前页面」。
 
 支持 DeepSeek、OpenAI、Claude、Gemini、通义千问、Kimi、智谱 GLM、硅基流动、Ollama，以及兼容 OpenAI Chat Completions 的自定义接口。模型 ID 可自行填写，以你的服务商账户实际开放的模型为准。
 
 默认翻译为简体中文，双语显示。支持 12 种目标语言、纯译文模式和一键恢复原文。恢复时保留原有链接、元素身份和文字；翻译期间网页自行更新的文字不会被旧原文覆盖。
+
+## 划词翻译
+
+在扩展弹窗的「阅读模式」下方打开「划词翻译」，首次开启时允许 Chrome 请求的网页访问权限。之后在普通网页上选中文字，译文会显示在文字旁，复用当前 AI 服务、模型和目标语言。支持鼠标划选与键盘选区；最多翻译 5,000 字符，不修改原文。
+
+弹窗和配置页「翻译偏好」均可切换此功能，关闭后所有已打开的标签页立即停止划词翻译、取消未完成的划词请求并收起结果。该开关与整页翻译独立。按 Escape、点击空白或滚动页面也可收起当前结果。
+
+划词翻译默认关闭，授权后会在新打开的网页中自动可用，无需每次打开弹窗。输入框、密码框、表单、编辑区域、代码块、隐藏内容及 `translate="no"` 区域不会用于划词翻译。API Key 始终只在扩展后台使用。
 
 ## 速度设计
 
@@ -36,11 +44,13 @@ Ollama 默认地址 `http://localhost:11434/v1`，密钥可留空，模型填写
 
 API Key 存储在 `chrome.storage.local`，不做跨设备同步、不经过 PageLingo 服务器。它不是加密保险库；能访问此浏览器配置文件的人可能读取密钥。内容脚本无法读取保存 Key 的存储区域，网页只会收到译文和公开配置。
 
-只在你主动点击翻译后读取当前页的可见文本，并直发所选 AI 服务。不会主动发送页面 URL、表单字段、代码块或隐藏内容。可选的动态翻译在本次翻译开始后处理新加载的文本，恢复原文后停止。
+整页翻译只在你主动点击翻译后读取当前页的可见文本；划词翻译只在开启功能并选中文字后发送选区文本。文字直发所选 AI 服务，不发送页面 URL、表单字段、代码块或隐藏内容。可选的动态翻译在本次整页翻译开始后处理新加载的文本，恢复原文后停止。
 
 缓存仅在当前浏览器的 IndexedDB 中保留译文与原文哈希，不保存明文原文。敏感页面可关闭缓存；配置页的「速度与缓存」可清空缓存。删除服务商 Key 时，清空密钥输入框并保存即可。
 
 首次安装仅申请 `storage`、`activeTab` 和 `scripting`。API 域名权限在保存或测试时按需授权；不会在安装时申请读取所有网页。
+
+开启划词翻译时，才会按需申请 HTTP / HTTPS 网页访问权限，用于在当前与新打开的页面中处理选区。关闭开关会停用监听和自动注入；Chrome 已授予的域名权限保留，避免影响整页翻译的 API 访问。可在 Chrome 扩展详情中管理网站访问权限。
 
 ## 支持范围
 
@@ -61,6 +71,8 @@ npm run package # 生成解压目录和 ZIP 安装包
 
 `tests/browser.html` 提供真实 DOM、MutationObserver 与渲染流程的浏览器测试，使用模拟服务，不会连接 AI 服务或使用真实 Key。自动化测试涵盖三种 API 协议、批次编号校验、超时、重试、取消、缓存、权限边界和 DOM 保留。真实服务需要用户 Key 才能验证，本仓库不包含任何 Key。
 
+`tests/selection-browser.html` 提供划词翻译的真实 Selection / Range 集成测试，同样使用模拟模型响应。
+
 ## API 参考
 
 - [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
@@ -68,4 +80,5 @@ npm run package # 生成解压目录和 ZIP 安装包
 - [Claude Messages](https://platform.claude.com/docs/en/api/messages)
 - [Gemini API](https://ai.google.dev/api/generate-content)
 - [Chrome activeTab](https://developer.chrome.com/docs/extensions/develop/concepts/activeTab)
+- [Chrome 动态内容脚本与可选权限](https://developer.chrome.com/docs/extensions/reference/api/scripting)、[权限申请](https://developer.chrome.com/docs/extensions/reference/api/permissions)
 - [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility)

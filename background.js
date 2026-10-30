@@ -1,11 +1,24 @@
-import { PROVIDERS, LANGUAGES, getSettings, getProvider, isProviderReady } from './lib/config.js';
+import { PROVIDERS, LANGUAGES, STORAGE_KEY, getSettings, getProvider, isProviderReady } from './lib/config.js';
 import { translateBatch, requestTranslations, validateEndpoint, TranslationError } from './lib/translator.js';
 import { cacheStats, clearTranslationCache } from './lib/cache.js';
+import { createSelectionManager, publicSettings } from './lib/selection.js';
 
 const sessions = new Map();
 const cancelled = new Map();
 const waiting = [];
 let activeRequests = 0;
+
+function abortSelectionSessions() {
+  for (const [key, session] of sessions) if (session.kind === 'selection') {
+    cancelled.set(key, Date.now());
+    session.controller.abort();
+  }
+}
+const selectionManager = createSelectionManager({ onDisable: abortSelectionSessions });
+
+function reconcileSelection(options) {
+  void selectionManager.reconcile(options).catch(() => {});
+}
 
 function protectStorage() {
   // Keys are never made available to content scripts or injected page code.
@@ -14,8 +27,18 @@ function protectStorage() {
 protectStorage();
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   protectStorage();
+  reconcileSelection({ injectExisting: true });
   if (reason === 'install') chrome.runtime.openOptionsPage();
 });
+chrome.runtime.onStartup?.addListener(() => reconcileSelection({ injectExisting: true }));
+chrome.permissions.onRemoved?.addListener(() => reconcileSelection());
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (area !== 'local' || !changes[STORAGE_KEY]) return;
+  if (changes[STORAGE_KEY].newValue?.selectionEnabled !== true) abortSelectionSessions();
+  reconcileSelection({ injectExisting: changes[STORAGE_KEY].newValue?.selectionEnabled === true && changes[STORAGE_KEY].oldValue?.selectionEnabled !== true });
+});
+// A service worker may restart independently of browser startup or extension installation.
+reconcileSelection();
 
 function trustedUI(sender) {
   return sender.id === chrome.runtime.id && typeof sender.url === 'string' && sender.url.startsWith(chrome.runtime.getURL(''));
@@ -73,21 +96,22 @@ async function handleMessage(message, sender) {
 
   if (message.type === 'GET_PUBLIC_SETTINGS') {
     const settings = await getSettings();
-    const provider = getProvider(settings);
-    return { ok: true, settings: {
-      targetLanguage: settings.targetLanguage, displayMode: settings.displayMode,
-      concurrency: settings.concurrency, batchSize: settings.batchSize,
-      cacheEnabled: settings.cacheEnabled, translateDynamic: settings.translateDynamic,
-      activeProvider: provider.id, ready: isProviderReady(settings),
-      providerName: provider.name, model: settings.providers[provider.id].model,
-    } };
+    return { ok: true, settings: publicSettings({ ...settings, selectionEnabled: selectionManager.isEnabled(settings) }) };
   }
-  if (message.type === 'TRANSLATE_BATCH') {
+  if (message.type === 'SET_SELECTION_ENABLED') {
+    if (!ui) throw new TranslationError('此操作仅可在插件设置中执行。');
+    try { return { ok: true, settings: await selectionManager.setEnabled(message.enabled) }; }
+    catch (error) { throw new TranslationError(error.message || '划词翻译设置失败，请重试。'); }
+  }
+  if (message.type === 'TRANSLATE_BATCH' || message.type === 'TRANSLATE_SELECTION') {
     if (!content) throw new TranslationError('请在网页中启动翻译。');
+    const isSelection = message.type === 'TRANSLATE_SELECTION';
     const key = sessionKey(sender, message);
     for (const [id, time] of cancelled) if (Date.now() - time > 60000) cancelled.delete(id);
     if (cancelled.has(key)) throw new TranslationError('翻译已停止。', 'ABORTED');
     const settings = await getSettings();
+    if (isSelection && !selectionManager.isEnabled(settings)) throw new TranslationError('划词翻译已关闭。', 'SELECTION_DISABLED');
+    if (isSelection && (typeof message.text !== 'string' || !message.text.trim() || message.text.length > 5000)) throw new TranslationError('请选择 1–5,000 字符的文本。', 'INVALID_SELECTION');
     const provider = getProvider(settings);
     const config = settings.providers[provider.id];
     if (!isProviderReady(settings)) throw new TranslationError('请先在配置页填写 API Key 和模型。', 'MISSING_KEY');
@@ -95,15 +119,24 @@ async function handleMessage(message, sender) {
     const language = message.targetLanguage || settings.targetLanguage;
     if (!LANGUAGES.some(item => item.code === language)) throw new TranslationError('不支持此目标语言。');
     if (cancelled.has(key)) throw new TranslationError('翻译已停止。', 'ABORTED');
+    // An off-toggle can land while a permission check is awaiting a response.
+    if (isSelection && !selectionManager.isEnabled(await getSettings())) throw new TranslationError('划词翻译已关闭。', 'SELECTION_DISABLED');
     let session = sessions.get(key);
-    if (!session) { session = { controller: new AbortController(), count: 0 }; sessions.set(key, session); }
+    const kind = isSelection ? 'selection' : 'page';
+    if (session && session.kind !== kind) throw new TranslationError('翻译会话类型不匹配。');
+    if (!session) { session = { controller: new AbortController(), count: 0, kind }; sessions.set(key, session); }
     session.count++;
     try {
-      const result = await translateBatch(provider, config, language, message.items, {
+      const items = isSelection ? [{ id: 'selection', text: message.text.trim() }] : message.items;
+      const result = await translateBatch(provider, config, language, items, {
         signal: session.controller.signal, scope: key, cacheEnabled: settings.cacheEnabled,
         // Cache hits return immediately even when all remote request slots are busy.
         scheduleRequest: task => withPermit(settings.concurrency, session.controller.signal, task),
       });
+      if (isSelection) {
+        if (session.controller.signal.aborted || !selectionManager.isEnabled(await getSettings())) throw new TranslationError('划词翻译已关闭。', 'SELECTION_DISABLED');
+        return { ok: true, text: result.translations[0].text, cached: result.translations[0].cached };
+      }
       return { ok: true, ...result };
     } finally {
       session.count--;

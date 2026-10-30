@@ -1,4 +1,4 @@
-import { PROVIDERS, LANGUAGES, getSettings, saveSettings, isProviderReady, getProvider, extensionAvailable, validateEndpoint } from './lib/config.js';
+import { PROVIDERS, LANGUAGES, STORAGE_KEY, getSettings, saveSettings, isProviderReady, getProvider, extensionAvailable, validateEndpoint } from './lib/config.js';
 
 const $ = id => document.getElementById(id);
 let settings = await getSettings();
@@ -176,6 +176,46 @@ document.querySelectorAll('[data-go]').forEach(el => el.addEventListener('click'
 LANGUAGES.forEach(l => { const option = document.createElement('option'); option.value = l.code; option.textContent = l.name; $('target-language').append(option); });
 $('target-language').value = settings.targetLanguage;
 $('translate-dynamic').checked = settings.translateDynamic;
+$('selection-enabled').checked = settings.selectionEnabled;
+$('selection-setting-status').textContent = settings.selectionEnabled ? '已开启 · 复用当前 AI 服务与目标语言' : '首次开启时，Chrome 会请求网页访问权限。';
+$('selection-enabled').addEventListener('change', async event => {
+  const control = event.target;
+  const enabled = control.checked;
+  control.disabled = true;
+  try {
+    // Request synchronously from the checkbox gesture, before any storage/network work.
+    const permission = extensionAvailable && enabled
+      ? chrome.permissions.request({ origins: ['http://*/*', 'https://*/*'] })
+      : Promise.resolve(true);
+    if (!await permission) throw new Error('未获得网页访问权限，划词翻译保持关闭。');
+    if (extensionAvailable) {
+      const result = await chrome.runtime.sendMessage({ type: 'SET_SELECTION_ENABLED', enabled });
+      if (!result?.ok) throw new Error(result?.error || '划词翻译设置失败，请重试。');
+      settings = await getSettings();
+    } else settings = await saveSettings({ ...await getSettings(), selectionEnabled: enabled });
+    control.checked = settings.selectionEnabled;
+    $('selection-setting-status').textContent = extensionAvailable
+      ? settings.selectionEnabled ? '已开启 · 选中文字即可翻译' : '已关闭 · 所有标签页立即生效'
+      : '已保存预览设置，加载扩展后可使用划词翻译。';
+    notify(extensionAvailable ? settings.selectionEnabled ? '划词翻译已开启' : '划词翻译已关闭' : '划词翻译预览设置已保存');
+  } catch (error) {
+    try { settings = await getSettings(); } catch { /* Keep the last confirmed preference if storage is unavailable. */ }
+    control.checked = settings.selectionEnabled;
+    $('selection-setting-status').textContent = error.message || '操作失败，请重试。';
+    notify(error.message || '操作失败，请重试');
+  } finally { control.disabled = false; }
+});
+if (extensionAvailable) chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes[STORAGE_KEY]) return;
+  getSettings().then(latest => {
+    settings = latest;
+    if (!$('selection-enabled').disabled) {
+      $('selection-enabled').checked = latest.selectionEnabled;
+      $('selection-setting-status').textContent = latest.selectionEnabled ? '已开启 · 复用当前 AI 服务与目标语言' : '已关闭 · 可在插件弹窗快捷开启';
+    }
+    renderOverview();
+  }).catch(() => {});
+});
 function renderDisplayMode() {
   document.querySelectorAll('#display-mode [data-mode]').forEach(el => { el.classList.toggle('active', el.dataset.mode === selectedMode); el.setAttribute('aria-pressed', String(el.dataset.mode === selectedMode)); });
   $('reading-original').hidden = selectedMode === 'translated';
