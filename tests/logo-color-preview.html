@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PageLingo · Logo 配色预览</title>
+  <style>
+    *{box-sizing:border-box}html{background:#e9ebed}body{width:1440px;margin:0;color:#303640;background:#f7f7f4;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}.hero{padding:38px 54px 34px}.kicker{font-size:10px;letter-spacing:2px;color:#7a8088}h1{font-size:29px;letter-spacing:-.7px;line-height:1.35;margin:8px 0}p{margin:0;color:#737a83;font-size:12px}.comparison{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:26px}.logo-card{display:flex;align-items:center;gap:26px;min-height:188px;padding:30px 34px;border:1px solid #e0e2e2;border-radius:16px;background:#fff}.logo-card img{width:104px;height:104px;flex-shrink:0}.wordmark{font-size:34px;font-weight:750;letter-spacing:-1.4px;line-height:1.2;color:#303640}.label{margin-top:12px;color:#7c838c;font-size:12px;letter-spacing:.3px}.label strong{color:#303640;font-weight:600}.color-pair{display:flex;align-items:center;gap:8px;color:#8c929a;font-size:10px;margin-top:11px;letter-spacing:.5px}.swatch{height:9px;width:9px;border-radius:3px;background:#303640}.swatch.old{background:#c7ef65}.swatch.ink{background:#f7f7f2;border:1px solid #d9dcdf}.controls{display:flex;align-items:center;gap:16px;margin-top:24px}button{font:inherit;font-size:11px;padding:7px 12px;border:1px solid #d9dde0;background:#fff;border-radius:6px;color:#525b66;cursor:pointer}#status{margin-left:auto;color:#68737d;font-size:11px}#status.error{color:#a9443c}.themes{padding:0 54px 42px}h2{font-size:17px;font-weight:600;letter-spacing:-.3px;margin:0 0 18px}.theme-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}.theme-card{border:1px solid #dde1e3;border-radius:14px;overflow:hidden;background:#edf0f1}.theme-name{height:45px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:#fff;border-bottom:1px solid #e2e5e6;font-size:12px;font-weight:600}.theme-name span{font-size:9px;color:#8d959d;letter-spacing:1px;font-weight:400}.frame-stage{height:636px;padding:18px 0;display:flex;justify-content:center;align-items:flex-start}iframe{width:370px;height:600px;display:block;flex-shrink:0;border:0;border-radius:10px;overflow:hidden;pointer-events:none;box-shadow:0 3px 14px #3036400c}.theme-note{display:flex;align-items:center;justify-content:center;border:1px dashed #d1d7dc;border-radius:14px;color:#87909a;font-size:12px;line-height:2;text-align:center;padding:30px;background:#f3f4f3}.theme-note strong{display:block;font-size:17px;font-weight:600;color:#626b75;margin-bottom:9px}.footer{padding:0 54px 30px;font-size:10px;color:#8a929a;letter-spacing:.3px}#errors{margin:0 54px 30px;white-space:pre-wrap;font-size:12px;color:#a9443c}#errors:empty{display:none}
+  </style>
+</head>
+<body>
+  <section class="hero" id="hero">
+    <div class="kicker">PAGELINGO / BRAND COLOR PREVIEW</div>
+    <h1>同一个 Logo，更百搭的配色。</h1>
+    <p>保留原有 P 与翻译符号，只将底色改为石墨灰、字形改为暖白。</p>
+    <div class="comparison">
+      <div class="logo-card"><img src="../screenshots/previews/logo-neutral/logo-original.svg" alt="原配色 Logo"><div><div class="wordmark">PageLingo.</div><div class="label">原配色</div><div class="color-pair"><i class="swatch old"></i>#C7EF65</div></div></div>
+      <div class="logo-card"><img src="../screenshots/previews/logo-neutral/logo-graphite.svg" alt="石墨灰 Logo 预览"><div><div class="wordmark">PageLingo.</div><div class="label"><strong>石墨灰</strong> · 预览</div><div class="color-pair"><i class="swatch"></i>#303640 <i class="swatch ink"></i>#F7F7F2</div></div></div>
+    </div>
+    <div class="controls"><button type="button" id="download-geometry">下载裁切坐标</button><span id="status" role="status">正在加载正式弹窗…</span></div>
+  </section>
+  <section class="themes" id="themes"><h2>放进五套主题，看看实际效果</h2><div class="theme-grid" id="theme-grid"></div></section>
+  <p class="footer">Logo 配色对比 · 正式弹窗界面与模拟数据</p>
+  <pre id="errors"></pre>
+  <script src="logo-color-preview.js"></script>
+</body>
+</html>
