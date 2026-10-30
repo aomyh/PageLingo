@@ -30,6 +30,7 @@
       <div id="hidden-range" class="private"><p id="hidden-start">Visible opening.</p><span style="opacity:0">PRIVATE_HIDDEN_MIDDLE</span><p id="hidden-end">Visible ending.</p></div>
       <pre><code id="public-code">const <span id="code-word">greeting</span> = 'Hello world';</code></pre>
     </article>
-    <p class="note" translate="no">点击“选中示例并预览”可稳定展示翻译卡片；快捷关闭会立即移除卡片。页面中的英文仅为测试素材。</p>
+    <div id="scroll-container" class="private" style="height:76px;overflow:auto" translate="no" tabindex="0" aria-label="嵌套滚动测试区域"><div style="height:260px">嵌套滚动区域：滚动这里不会收起已有划词翻译。<br>用于检查页面内部滚动容器的原生 scroll 事件。</div></div>
+    <p class="note" translate="no">点击“选中示例并预览”可稳定展示翻译卡片；页面和内部容器滚动时卡片应保留。快捷关闭会立即移除卡片。页面中的英文仅为测试素材。</p>
   </div>
-</main></body></html>
+</main><div style="height:100vh" aria-hidden="true" translate="no"></div></body></html>

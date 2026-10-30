@@ -211,12 +211,15 @@ test('rejects editable endpoints and ranges crossing private forms or CSS-hidden
   await flush(); assert.equal(page.requests.length, 0); assert.equal(page.host, undefined);
 });
 
-test('errors offer retry and Escape/scroll dismiss without reopening the unchanged selection', async () => {
+test('errors remain retryable after scrolling while Escape closes without reopening the unchanged selection', async () => {
   let calls = 0;
   const page = harness(async () => ++calls === 1 ? { ok: false, error: '额度不足，请重试。' } : { ok: true, text: '重试成功' }); page.settings(enabled);
   const text = page.text('Retry this'); page.document.body.append(page.node('p', text)); page.select(text);
   page.document.fire('mouseup', { button: 0 }); page.advance(); await flush();
   assert.equal(page.host.getAttribute('data-state'), 'error');
+  const erroredHost = page.host;
+  page.window.fire('scroll');
+  assert.equal(page.host, erroredHost);
   const retry = descendants(page.host.shadow).find(node => node.className === 'retry');
   assert.equal(retry.hidden, false); retry.fire('click'); await flush();
   assert.equal(page.requests.length, 2); assert.equal(page.host.getAttribute('data-state'), 'complete');
@@ -224,7 +227,60 @@ test('errors offer retry and Escape/scroll dismiss without reopening the unchang
   page.document.fire('mouseup', { button: 0 }); page.advance(); assert.equal(page.requests.length, 2);
   page.collapse(); page.select(text); page.document.fire('selectionchange'); page.advance(); await flush();
   assert.equal(page.requests.length, 3);
-  page.window.fire('scroll'); assert.equal(page.host, undefined);
+  const completedHost = page.host;
+  page.window.fire('scroll'); assert.equal(page.host, completedHost);
+  const close = descendants(completedHost.shadow).find(node => node.getAttribute('aria-label') === '关闭划词翻译');
+  close.fire('click'); assert.equal(page.host, undefined);
+});
+
+test('page and nested scrolling keep completed and pending translations without duplicate requests or cancellation', async () => {
+  const pending = deferred(), page = harness(() => pending.promise); page.settings(enabled);
+  const text = page.text('Keep reading while the page scrolls');
+  const container = page.node('section', page.node('p', text)); page.document.body.append(container);
+  page.select(text); page.document.fire('mouseup', { button: 0 }); page.advance();
+  const host = page.host, left = host.style.left, top = host.style.top;
+  const cancellations = () => page.messages.filter(message => message.type === 'CANCEL_TRANSLATION').length;
+  const before = cancellations();
+  page.window.fire('scroll');
+  page.window.fire('scroll', { target: container, composedPath: () => [container] });
+  page.advance(1000); await flush();
+  assert.equal(page.host, host); assert.equal(host.getAttribute('data-state'), 'loading');
+  assert.equal(page.requests.length, 1); assert.equal(cancellations(), before);
+  pending.resolve({ ok: true, text: '滚动后继续显示译文' }); await flush();
+  page.window.fire('scroll');
+  assert.equal(page.host, host); assert.equal(host.getAttribute('data-state'), 'complete');
+  assert.ok(host.shadow.textContent.includes('滚动后继续显示译文'));
+  assert.equal(host.style.left, left); assert.equal(host.style.top, top);
+  assert.equal(page.requests.length, 1); assert.equal(cancellations(), before);
+  page.document.fire('pointerdown', { button: 0, target: container });
+  assert.equal(page.host, undefined, 'clicking outside still dismisses the card');
+});
+
+test('resizing clamps the card inside the viewport without replacing or cancelling it', async () => {
+  const page = harness(); page.settings(enabled);
+  const text = page.text('Keep the card reachable'); page.document.body.append(page.node('p', text));
+  page.select(text); page.document.fire('mouseup', { button: 0 }); page.advance(); await flush();
+  const host = page.host;
+  host.style.left = '900px'; host.style.top = '700px';
+  const before = page.messages.length;
+  page.window.innerWidth = 320; page.window.innerHeight = 250; page.window.fire('resize');
+  assert.equal(page.host, host); assert.equal(host.style.width, '296px');
+  assert.equal(host.style.left, '12px'); assert.equal(host.style.top, '58px');
+  assert.equal(page.messages.length, before, 'viewport changes neither refetch nor cancel');
+});
+
+test('retry after scrolling uses the already displayed source when its original Range is offscreen', async () => {
+  let attempts = 0;
+  const page = harness(async () => ++attempts === 1 ? { ok: false, error: '临时错误' } : { ok: true, text: '重试成功' }); page.settings(enabled);
+  const text = page.text('Retry an offscreen source'); page.document.body.append(page.node('p', text));
+  page.select(text); page.document.fire('mouseup', { button: 0 }); page.advance(); await flush();
+  const host = page.host;
+  page.window.innerHeight = 80; // The captured Range at y=100 is now outside the viewport.
+  page.window.fire('scroll');
+  descendants(host.shadow).find(node => node.className === 'retry').fire('click'); await flush();
+  assert.equal(page.requests.length, 2);
+  assert.equal(page.requests[1].text, 'Retry an offscreen source');
+  assert.equal(page.host.getAttribute('data-state'), 'complete');
 });
 
 test('card selections do not translate themselves, and reinjection never duplicates listeners', async () => {

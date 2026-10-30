@@ -8,7 +8,7 @@ const { version } = JSON.parse(await readFile(path.join(root, 'manifest.json')))
 const folder = `PageLingo-${version}`;
 const destination = path.join(root, 'dist', folder);
 await mkdir(destination, { recursive: true });
-const entries = ['manifest.json', 'background.js', 'content.js', 'selection.js', 'options.html', 'options.js', 'options.css', 'popup.html', 'popup.js', 'popup.css', 'translate.html', 'translate.js', 'translate.css', 'lib', 'assets', 'styles', 'README.md'];
+const entries = ['manifest.json', 'background.js', 'content.js', 'selection.js', 'manual-panel.js', 'options.html', 'options.js', 'options.css', 'popup.html', 'popup.js', 'popup.css', 'translate.html', 'translate.js', 'translate.css', 'lib', 'assets', 'styles', 'README.md'];
 for (const entry of entries) await cp(path.join(root, entry), path.join(destination, entry), { recursive: true });
 // Exact allowlist prevents local environment files, tests, and credentials from entering the archive.
 const archive = path.join(root, 'dist', `${folder}.zip`);

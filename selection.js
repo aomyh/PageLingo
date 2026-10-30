@@ -103,9 +103,20 @@
     const height = card.box.getBoundingClientRect().height || 180;
     const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
     const below = rect.bottom + 10;
-    const top = below + height <= window.innerHeight - 12 ? below : Math.max(12, rect.top - height - 10);
+    const preferredTop = below + height <= window.innerHeight - 12 ? below : rect.top - height - 10;
+    const top = Math.max(12, Math.min(preferredTop, window.innerHeight - height - 12));
     host.style.left = `${left}px`;
     host.style.top = `${top}px`;
+  }
+  function keepVisible() {
+    if (!host || !card) return;
+    const width = Math.min(360, Math.max(0, window.innerWidth - 24));
+    host.style.width = `${width}px`;
+    const height = card.box.getBoundingClientRect().height || 180;
+    const left = Number.parseFloat(host.style.left) || 12;
+    const top = Number.parseFloat(host.style.top) || 12;
+    host.style.left = `${Math.max(12, Math.min(left, window.innerWidth - width - 12))}px`;
+    host.style.top = `${Math.max(12, Math.min(top, window.innerHeight - height - 12))}px`;
   }
   function createCard(selection) {
     host = element('div', { 'data-pagelingo': 'selection', 'data-state': 'loading' });
@@ -115,6 +126,7 @@
       :host{all:initial;position:fixed;z-index:2147483647;display:block;width:min(360px,calc(100vw - 24px));font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;font-size:13px;line-height:1.6;color:#283020;color-scheme:light}
       *{box-sizing:border-box}.card{border:1px solid #dfe6d5;border-radius:14px;background:#fff;box-shadow:0 12px 45px #1d2c132b;overflow:hidden}.head{display:flex;align-items:center;gap:8px;padding:12px 14px 9px}.mark{display:grid;place-items:center;width:25px;height:25px;flex-shrink:0;border-radius:8px;background:#c7ef65;color:#354524;font-size:13px;font-weight:700}.title{font-size:11px;font-weight:650;flex:1}.close{border:0;background:none;color:#99a18e;font-size:21px;line-height:1;padding:4px;cursor:pointer}.source{font-size:11px;color:#8f9982;white-space:pre-wrap;overflow-wrap:anywhere;max-height:57px;overflow:auto;margin:0 15px 10px;padding-bottom:9px;border-bottom:1px solid #edf0e7}.result{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.75;padding:0 15px 13px;max-height:min(280px,45vh);overflow:auto;user-select:text}.result.loading{color:#8c9b77}.result.error{color:#aa694e}.foot{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#f8faf4;border-top:1px solid #edf0e7;padding:8px 14px;font-size:9px;color:#97a186}.meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.retry{font:inherit;font-size:10px;color:#698441;background:#edf4df;border:0;border-radius:5px;padding:4px 9px;cursor:pointer}button:focus-visible{outline:2px solid #7b9a4c;outline-offset:2px}[hidden]{display:none!important}
     `;
+    style.textContent += '\n.card{display:flex;flex-direction:column;max-height:calc(100vh - 24px)}.head,.source,.foot{flex-shrink:0}.result{min-height:0;flex-shrink:1}';
     const box = element('div', { class: 'card', role: 'dialog', 'aria-label': 'PageLingo 划词翻译' });
     const head = element('div', { class: 'head' });
     const close = element('button', { class: 'close', type: 'button', 'aria-label': '关闭划词翻译', title: '关闭（Esc）' }, '×');
@@ -128,7 +140,9 @@
     const retry = element('button', { class: 'retry', type: 'button' }, '重试');
     retry.hidden = true;
     retry.addEventListener('pointerdown', event => event.preventDefault());
-    retry.addEventListener('click', () => { const selected = snapshot(); if (selected) void translate(selected); else dismiss(); });
+    // The source may have scrolled offscreen. Retry the already displayed text
+    // without requiring its original Range to remain in the viewport.
+    retry.addEventListener('click', () => { const selected = snapshot() || active; if (selected) void translate(selected); else dismiss(); });
     foot.append(meta, retry);
     box.append(head, source, result, foot);
     shadow.append(style, box);
@@ -155,7 +169,7 @@
       card.result.className = 'result';
       card.result.textContent = response.text;
       if (response.cached) card.meta.textContent += ' · 本地缓存';
-      place(selection.rect);
+      keepVisible();
     } catch (error) {
       if (myEpoch !== epoch || !settings.selectionEnabled || !active) return;
       active.state = 'error';
@@ -163,7 +177,7 @@
       card.result.className = 'result error';
       card.result.textContent = error?.message || '划词翻译失败，请检查配置后重试。';
       card.retry.hidden = false;
-      place(selection.rect);
+      keepVisible();
     }
   }
   function schedule() {
@@ -199,7 +213,6 @@
   }
   function pointerCanceled() { pointerSelecting = false; dismiss(); }
   function keyDown(event) { if (event.key === 'Escape') pointerCanceled(); }
-  function moved(event) { if (!ownEvent(event)) dismiss(); }
 
   function setListening(enabled) {
     if (enabled === listening) return;
@@ -214,8 +227,9 @@
     document[method]('pointerdown', pointerDown, true);
     document[method]('pointercancel', pointerCanceled, true);
     document[method]('keydown', keyDown, true);
-    window[method]('scroll', moved, true);
-    window[method]('resize', moved);
+    // The card is fixed to the viewport. Scrolling either the page or a nested
+    // container must not dismiss it or cancel a pending translation.
+    window[method]('resize', keepVisible);
     window[method]('blur', pointerCanceled);
   }
   function applySettings(next) {

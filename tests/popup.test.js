@@ -32,7 +32,7 @@ async function popup({ enabled = false, extension = true, permit = true, workerE
   elements['mode-bilingual'].dataset.mode = 'bilingual'; elements['mode-translated'].dataset.mode = 'translated';
   const log = [], sent = [], opened = [];
   let usageData = structuredClone(usage), usageCalls = 0;
-  let storageListener, closes = 0;
+  let storageListener, closes = 0, manualShows = 0;
   const context = vm.createContext({
     URL, console,
     LANGUAGES: [{ code: 'zh-CN', name: '简体中文' }], STORAGE_KEY: key, extensionAvailable: extension,
@@ -44,7 +44,7 @@ async function popup({ enabled = false, extension = true, permit = true, workerE
       getElementById: id => elements[id], createElement: () => new Element(),
       querySelectorAll: selector => selector === '[data-mode]' ? [elements['mode-bilingual'], elements['mode-translated']] : [],
     },
-    window: { addEventListener() {}, location: {}, close() { closes++; }, open: (...args) => { opened.push(args); return { focus() {} }; } },
+    window: { addEventListener() {}, location: {}, close() { closes++; }, open: (...args) => { opened.push(args); return { focus() {} }; }, __pageLingoManualPanel: { show() { manualShows++; } } },
     chrome: {
       permissions: { request: options => { log.push('permissions.request'); assert.deepEqual(Array.from(options.origins), ['http://*/*', 'https://*/*']); return Promise.resolve(typeof permit === 'function' ? permit() : permit); } },
       runtime: {
@@ -77,6 +77,7 @@ async function popup({ enabled = false, extension = true, permit = true, workerE
     elements, log, sent, opened, context,
     get usageCalls() { return usageCalls; },
     get closes() { return closes; },
+    get manualShows() { return manualShows; },
     setting: () => structuredClone(stored),
     async externalChange(value) {
       stored.selectionEnabled = value;
@@ -214,10 +215,10 @@ test('missing usage and an unavailable counter are explicit, and HTTP preview ne
   assert.equal(preview.context.window.location.href, 'options.html#usage');
 });
 
-test('manual entry opens an independent translator on restricted pages without keys or selection permission', async () => {
+test('manual entry sends the current tab to the floating translator without keys or selection permission', async () => {
   const view = await popup();
   await view.elements['open-manual'].listeners.click();
-  assert.deepEqual(view.sent, [{ type: 'OPEN_TEXT_TRANSLATOR' }]);
+  assert.deepEqual(view.sent, [{ type: 'OPEN_TEXT_TRANSLATOR', tabId: 7 }]);
   assert.equal(view.log.includes('permissions.request'), false);
   assert.equal(view.log.includes('saveSettings'), false);
   assert.equal(view.closes, 1);
@@ -237,10 +238,12 @@ test('manual launch deduplicates pending clicks and keeps the popup open on fail
   assert.equal(view.elements['status-message'].textContent, '无法打开独立窗口');
 });
 
-test('preview opens the dedicated translator without a simulated AI response or closing the source page', async () => {
+test('preview shows the floating translator in place without opening a tab or closing the source page', async () => {
   const view = await popup({ extension: false });
   await view.elements['open-manual'].listeners.click();
-  assert.deepEqual(view.opened, [['translate.html', 'pagelingo-manual-translator', 'popup,width=460,height=680']]);
+  await view.elements['open-manual'].listeners.click();
+  assert.deepEqual(view.opened, []);
+  assert.equal(view.manualShows, 2);
   assert.equal(view.sent.length, 0);
   assert.equal(view.closes, 0);
 });

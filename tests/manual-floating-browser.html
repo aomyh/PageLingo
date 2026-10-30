@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PageLingo · 当前页浮窗检查</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;padding:24px;background:#f5f7f0;color:#283020;font:14px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}main{max-width:1480px;margin:auto}h1{font-size:24px;margin:0 0 10px}p{color:#78836c;line-height:1.7}button{padding:11px 18px;border:0;border-radius:7px;background:#c7ef65;color:#344329;font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.controls{display:flex;align-items:center;gap:16px;margin:18px 0}#summary{font-weight:650}.columns{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}.frame-wrap{overflow:auto}iframe{display:block;width:100%;height:800px;border:1px solid #dde4d4;background:#fbfcf8;border-radius:9px}section{background:white;border:1px solid #e0e6d8;border-radius:9px;padding:18px}ol{margin:10px 0;padding-left:22px}li{margin:10px 0;line-height:1.55}.pass{color:#537629}.fail{color:#a34431}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 monospace;color:#68745b}#error{color:#a34431}@media(max-width:1100px){.columns{grid-template-columns:1fr}.columns>section{order:-1}}
+  </style>
+</head>
+<body><main>
+  <h1>当前页手动翻译 · 真实 DOM 检查</h1>
+  <p>在模拟网页中注入正式 manual-panel.js，保留生产的 closed Shadow DOM。全部服务响应均为模拟，不读取 Key、不连接 AI 服务，也不打开新标签页或浏览器窗口。</p>
+  <div class="controls"><button id="run" type="button">运行浮窗检查</button><button id="preview" type="button">显示模拟浮窗</button><span id="summary" role="status" aria-live="polite">等待运行</span></div>
+  <div class="columns"><div class="frame-wrap"><iframe id="floating-frame" title="普通网页内的手动翻译浮窗 · 模拟数据"></iframe></div><section><strong>检查结果</strong><ol id="results"></ol><pre id="metrics"></pre><pre id="error"></pre></section></div>
+</main><script src="manual-floating-browser.js"></script></body>
+</html>

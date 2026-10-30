@@ -274,21 +274,35 @@ async function openUsage() {
   } catch { message('无法打开用量统计，请重试。', true); }
 }
 
+let manualPreviewLoading;
+async function openManualPreview() {
+  if (!window.__pageLingoManualPanel) {
+    if (!manualPreviewLoading) manualPreviewLoading = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'manual-panel.js';
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', () => { script.remove(); reject(new Error('无法加载手动翻译预览，请刷新后重试。')); }, { once: true });
+      document.head.append(script);
+    }).finally(() => { manualPreviewLoading = null; });
+    await manualPreviewLoading;
+  }
+  if (!window.__pageLingoManualPanel) throw new Error('无法加载翻译浮窗，请刷新后重试。');
+  await window.__pageLingoManualPanel.show();
+}
+
 async function openManual() {
   const button = $('open-manual');
   if (button.disabled) return;
   button.disabled = true;
   try {
     if (!extensionAvailable) {
-      const translator = window.open('translate.html', 'pagelingo-manual-translator', 'popup,width=460,height=680');
-      if (!translator) throw new Error('请允许此页面打开翻译预览窗口。');
-      translator.focus();
+      await openManualPreview();
       return;
     }
-    const result = await chrome.runtime.sendMessage({ type: 'OPEN_TEXT_TRANSLATOR' });
-    if (!result?.ok) throw new Error(result?.error || '无法打开手动翻译窗口，请重新加载扩展后重试。');
+    const result = await chrome.runtime.sendMessage({ type: 'OPEN_TEXT_TRANSLATOR', tabId: tab?.id });
+    if (!result?.ok) throw new Error(result?.error || '无法显示翻译浮窗，请在普通网页重新打开。');
     window.close();
-  } catch (error) { message(error.message || '无法打开手动翻译窗口，请重试。', true); }
+  } catch (error) { message(error.message || '无法显示翻译浮窗，请重试。', true); }
   finally { button.disabled = false; }
 }
 

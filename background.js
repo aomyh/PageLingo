@@ -1,19 +1,18 @@
-import { PROVIDERS, LANGUAGES, STORAGE_KEY, getSettings, getProvider, isProviderReady } from './lib/config.js';
+import { PROVIDERS, LANGUAGES, STORAGE_KEY, getSettings, getProvider, isProviderReady, normalizeSettings } from './lib/config.js';
 import { translateBatch, requestTranslations, validateEndpoint, TranslationError } from './lib/translator.js';
 import { cacheStats, clearTranslationCache } from './lib/cache.js';
-import { createSelectionManager, publicSettings } from './lib/selection.js';
+import { createSelectionManager, publicSettings, supportsSelection } from './lib/selection.js';
 import { recordUsage, getUsageStats, clearUsageStats } from './lib/usage.js';
-import { createTextTranslatorWindowManager } from './lib/manual-window.js';
 
 const sessions = new Map();
 const cancelled = new Map();
 const manualSessions = new Map();
 const manualCancelled = new Map();
+const openingManualPanels = new Map();
 const waiting = [];
 let activeRequests = 0;
-const textTranslatorWindow = createTextTranslatorWindowManager({
-  windows: chrome.windows, storage: chrome.storage.session, url: chrome.runtime.getURL('translate.html'),
-});
+const manualRevisionPrefix = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let manualRevisionCounter = 0;
 
 function abortSelectionSessions() {
   for (const [key, session] of sessions) if (session.kind === 'selection') {
@@ -41,6 +40,8 @@ chrome.runtime.onStartup?.addListener(() => reconcileSelection({ injectExisting:
 chrome.permissions.onRemoved?.addListener(() => reconcileSelection());
 chrome.storage.onChanged?.addListener((changes, area) => {
   if (area !== 'local' || !changes[STORAGE_KEY]) return;
+  const change = changes[STORAGE_KEY];
+  if (manualConfigurationSignature(change.oldValue) !== manualConfigurationSignature(change.newValue)) manualRevisionCounter++;
   if (changes[STORAGE_KEY].newValue?.selectionEnabled !== true) abortSelectionSessions();
   reconcileSelection({ injectExisting: changes[STORAGE_KEY].newValue?.selectionEnabled === true && changes[STORAGE_KEY].oldValue?.selectionEnabled !== true });
 });
@@ -97,9 +98,17 @@ function sessionKey(sender, message) {
 
 function manualKey(sender, message) {
   if (typeof message.requestId !== 'string' || !/^[\w-]{1,128}$/.test(message.requestId)) throw new TranslationError('翻译请求无效，请重新开始。', 'INVALID_REQUEST');
-  // Popups need no active website tab. Chrome's document identity also keeps two
-  // copies of the same extension page from cancelling one another's requests.
-  return `${sender.url}:${sender.documentId || sender.tab?.id || 'ui'}:${message.requestId}`;
+  // Document identity survives same-page route changes while keeping frames and
+  // tabs isolated. Older callers without it are scoped to their tab/frame.
+  const owner = sender.documentId ? `document:${sender.documentId}`
+    : Number.isInteger(sender.tab?.id) ? `tab:${sender.tab.id}:frame:${sender.frameId || 0}` : `ui:${sender.url}`;
+  return `${owner}:${message.requestId}`;
+}
+function manualConfigurationSignature(value) {
+  const settings = normalizeSettings(value), provider = getProvider(settings), config = settings.providers[provider.id];
+  // This private identity is never sent to content scripts; callers receive only
+  // an opaque revision. Reading preferences must not cancel a manual request.
+  return JSON.stringify([provider.id, config.model, config.baseUrl, config.apiKey]);
 }
 function pruneManualCancellations() {
   const cutoff = Date.now() - 60000;
@@ -108,6 +117,28 @@ function pruneManualCancellations() {
 }
 function ensureManualActive(key, controller) {
   if (controller.signal.aborted || manualCancelled.has(key)) throw new TranslationError('翻译已停止。', 'ABORTED');
+}
+
+function openManualPanel(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) throw new TranslationError('请在普通网页打开手动翻译，再粘贴需要翻译的内容。', 'UNSUPPORTED_PAGE');
+  if (!openingManualPanels.has(tabId)) {
+    const opening = (async () => {
+      let page;
+      try { page = await chrome.tabs.get(tabId); }
+      catch { throw new TranslationError('当前网页已关闭，请重新打开手动翻译。', 'UNSUPPORTED_PAGE'); }
+      if (!supportsSelection(page.url)) throw new TranslationError('此页面无法显示翻译浮窗，请切换到普通网页后粘贴内容。', 'UNSUPPORTED_PAGE');
+      try {
+        // The injected script reuses its existing panel and never opens a tab or
+        // browser window. activeTab grants this one user-initiated injection.
+        await chrome.scripting.executeScript({ target: { tabId }, files: ['manual-panel.js'] });
+      } catch {
+        throw new TranslationError('此页面无法显示翻译浮窗，请在普通网页打开后粘贴内容。', 'PANEL_UNAVAILABLE');
+      }
+      return { ok: true, tabId, mode: 'in-page' };
+    })().finally(() => openingManualPanels.delete(tabId));
+    openingManualPanels.set(tabId, opening);
+  }
+  return openingManualPanels.get(tabId);
 }
 
 async function handleMessage(message, sender) {
@@ -119,6 +150,14 @@ async function handleMessage(message, sender) {
   if (message.type === 'GET_PUBLIC_SETTINGS') {
     const settings = await getSettings();
     return { ok: true, settings: publicSettings({ ...settings, selectionEnabled: selectionManager.isEnabled(settings) }) };
+  }
+  if (message.type === 'GET_MANUAL_SETTINGS') {
+    const settings = await getSettings();
+    return { ok: true, settings: publicSettings(settings), configurationRevision: `${manualRevisionPrefix}:${manualRevisionCounter}` };
+  }
+  if (message.type === 'MANUAL_OPEN_OPTIONS') {
+    await chrome.runtime.openOptionsPage();
+    return { ok: true };
   }
   if (message.type === 'SET_SELECTION_ENABLED') {
     if (!ui) throw new TranslationError('此操作仅可在插件设置中执行。');
@@ -173,10 +212,9 @@ async function handleMessage(message, sender) {
     sessions.get(key)?.controller.abort();
     return { ok: true };
   }
-  if (!ui) throw new TranslationError('此操作仅可在插件配置页执行。');
   if (message.type === 'OPEN_TEXT_TRANSLATOR') {
-    try { return { ok: true, windowId: await textTranslatorWindow.open() }; }
-    catch { throw new TranslationError('无法打开手动翻译窗口，请重试。'); }
+    if (!ui) throw new TranslationError('请从插件弹窗打开手动翻译。');
+    return openManualPanel(message.tabId);
   }
   if (message.type === 'CANCEL_TEXT_TRANSLATION') {
     const key = manualKey(sender, message);
@@ -213,6 +251,7 @@ async function handleMessage(message, sender) {
         providerId: provider.id, model: config.model, targetLanguage: language };
     } finally { manualSessions.delete(key); }
   }
+  if (!ui) throw new TranslationError('此操作仅可在插件配置页执行。');
   if (message.type === 'TEST_CONNECTION') {
     const provider = PROVIDERS.find(item => item.id === message.providerId);
     if (!provider || !message.config) throw new TranslationError('服务商配置无效。');
@@ -246,11 +285,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-chrome.tabs.onRemoved.addListener(tabId => {
-  for (const [key, session] of sessions) if (key.startsWith(`${tabId}:`)) session.controller.abort();
+function cancelManualTabRequests(tabId) {
   for (const [key, session] of manualSessions) if (session.tabId === tabId) {
     manualCancelled.set(key, Date.now());
     session.controller.abort();
   }
   pruneManualCancellations();
+}
+chrome.tabs.onRemoved.addListener(tabId => {
+  for (const [key, session] of sessions) if (key.startsWith(`${tabId}:`)) session.controller.abort();
+  cancelManualTabRequests(tabId);
+});
+chrome.tabs.onUpdated?.addListener((tabId, change) => {
+  // Full document navigation destroys the panel. Cancel even if its pagehide
+  // message could not reach the worker while the old document was unloading.
+  if (change.status === 'loading') cancelManualTabRequests(tabId);
 });

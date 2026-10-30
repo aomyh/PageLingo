@@ -6,12 +6,13 @@ let permission = true;
 let openedOptions = false;
 let storageProtection;
 let changedListener, removedListener, startupListener;
-let tabRemovedListener;
+let tabRemovedListener, tabUpdatedListener;
 let registeredScripts = [];
 const selectionMessages = [];
 const selectionInjections = [];
-let translatorWindows = [];
 const createdWindows = [], updatedWindows = [], activatedTabs = [];
+const tabPages = new Map([[7, { id: 7, url: 'https://news.example.com/article' }]]);
+let panelInjectionError = false;
 let settings = { activeProvider: 'custom', concurrency: 2, cacheEnabled: false, providers: { custom: { apiKey: 'private-key-do-not-expose', model: 'test-model', baseUrl: 'https://api.example.com/v1' } } };
 const settingsKey = 'pagelingo.settings.v1';
 const stored = {};
@@ -41,26 +42,16 @@ globalThis.chrome = {
     set: async values => { Object.assign(sessionStored, values); },
   }, onChanged: { addListener: fn => { changedListener = fn; } } },
   permissions: { contains: async () => permission, onRemoved: { addListener: fn => { removedListener = fn; } } },
-  tabs: { onRemoved: { addListener: fn => { tabRemovedListener = fn; } }, query: async () => [{ id: 7, url: 'https://news.example.com/article' }], sendMessage: async (id, value) => { selectionMessages.push({ id, value }); return { ok: true }; }, update: async (id, options) => { activatedTabs.push({ id, options }); return { id }; } },
+  tabs: { onRemoved: { addListener: fn => { tabRemovedListener = fn; } }, onUpdated: { addListener: fn => { tabUpdatedListener = fn; } }, get: async id => { if (!tabPages.has(id)) throw new Error('No such tab'); return tabPages.get(id); }, query: async () => [{ id: 7, url: 'https://news.example.com/article' }], sendMessage: async (id, value) => { selectionMessages.push({ id, value }); return { ok: true }; }, update: async (id, options) => { activatedTabs.push({ id, options }); return { id }; } },
   windows: {
-    get: async id => {
-      const window = translatorWindows.find(value => value.id === id);
-      if (!window) throw new Error('No such window');
-      return { id: window.id, type: 'popup', state: 'normal' };
-    },
-    create: async options => {
-      createdWindows.push(options);
-      const window = { id: 100 + createdWindows.length, tabs: [{ id: 1000 + createdWindows.length, url: options.url }] };
-      translatorWindows.push(window);
-      return window;
-    },
+    create: async options => { createdWindows.push(options); throw new Error('Manual entry must never open a window'); },
     update: async (id, options) => { updatedWindows.push({ id, options }); return { id }; },
   },
   scripting: {
     getRegisteredContentScripts: async () => registeredScripts,
     registerContentScripts: async scripts => { registeredScripts = scripts; },
     unregisterContentScripts: async () => { registeredScripts = []; },
-    executeScript: async value => { selectionInjections.push(value); },
+    executeScript: async value => { if (panelInjectionError && value.files?.includes('manual-panel.js')) throw new Error('Blocked by browser; private error body'); selectionInjections.push(value); },
   },
 };
 await import('../background.js');
@@ -303,35 +294,78 @@ test('worker records paid usage once, cache deliveries separately, and test traf
   settings.cacheEnabled = false;
 });
 
-test('manual window opening is trusted-only, coalesces concurrent clicks and focuses an existing window', async () => {
-  assert.equal((await message({ type: 'OPEN_TEXT_TRANSLATOR' }, content)).ok, false);
-  const results = await Promise.all(Array.from({ length: 3 }, () => message({ type: 'OPEN_TEXT_TRANSLATOR' })));
-  assert.ok(results.every(result => result.ok && result.windowId === results[0].windowId));
-  assert.equal(createdWindows.length, 1);
-  assert.deepEqual(createdWindows[0], { type: 'popup', url: 'chrome-extension://extension-id/translate.html', width: 460, height: 680, focused: true });
-  const again = await message({ type: 'OPEN_TEXT_TRANSLATOR' });
-  assert.equal(again.windowId, results[0].windowId);
-  assert.equal(createdWindows.length, 1);
-  assert.deepEqual(updatedWindows.at(-1), { id: again.windowId, options: { focused: true } });
-  assert.equal(activatedTabs.length, 0, 'window reuse needs no tab information or tabs permission');
-  assert.equal(sessionStored['pagelingo.manualWindow.v1'], again.windowId);
+test('manual entry injects an in-page panel, coalesces clicks and never creates or activates a browser window/tab', async () => {
+  assert.equal((await message({ type: 'OPEN_TEXT_TRANSLATOR', tabId: 7 }, content)).ok, false);
+  const count = () => selectionInjections.filter(value => value.files?.includes('manual-panel.js')).length;
+  const before = count();
+  const results = await Promise.all(Array.from({ length: 3 }, () => message({ type: 'OPEN_TEXT_TRANSLATOR', tabId: 7 })));
+  assert.ok(results.every(result => result.ok && result.tabId === 7 && result.mode === 'in-page'));
+  assert.equal(count(), before + 1);
+  assert.deepEqual(selectionInjections.at(-1), { target: { tabId: 7 }, files: ['manual-panel.js'] });
+  assert.deepEqual(await message({ type: 'OPEN_TEXT_TRANSLATOR', tabId: 7 }), { ok: true, tabId: 7, mode: 'in-page' });
+  assert.equal(count(), before + 2, 'reinjection asks the isolated script to focus its existing panel');
+  assert.equal(createdWindows.length, 0);
+  assert.equal(updatedWindows.length, 0);
+  assert.equal(activatedTabs.length, 0);
+  assert.deepEqual(sessionStored, {}, 'no window session ID is created');
 });
 
-test('manual input is trusted-only, validates Unicode limits and reads only the saved provider config', async () => {
+test('restricted pages and injection failures report an error without falling back to a new tab', async () => {
+  for (const tabId of [undefined, null, -1, '7', 88]) assert.equal((await message({ type: 'OPEN_TEXT_TRANSLATOR', tabId })).code, 'UNSUPPORTED_PAGE');
+  for (const url of ['chrome://settings/', 'chrome-extension://extension-id/options.html', 'https://chromewebstore.google.com/detail/test', 'https://chrome.google.com/webstore/detail/test', 'file:///private/example.html']) {
+    tabPages.set(8, { id: 8, url });
+    assert.equal((await message({ type: 'OPEN_TEXT_TRANSLATOR', tabId: 8 })).code, 'UNSUPPORTED_PAGE');
+  }
+  panelInjectionError = true;
+  const failed = await message({ type: 'OPEN_TEXT_TRANSLATOR', tabId: 7 });
+  assert.equal(failed.code, 'PANEL_UNAVAILABLE');
+  assert.equal(failed.error.includes('private error body'), false);
+  panelInjectionError = false;
+  assert.equal((await message({ type: 'OPEN_TEXT_TRANSLATOR', tabId: 7 })).ok, true, 'a failed injection remains retryable');
+  assert.equal(createdWindows.length, 0);
+});
+
+test('manual settings expose public data and an opaque changing revision to content scripts', async () => {
+  const first = await message({ type: 'GET_MANUAL_SETTINGS' }, content);
+  assert.equal(first.ok, true);
+  assert.equal(first.settings.providerName, '自定义服务');
+  assert.equal(first.settings.ready, true);
+  assert.equal(typeof first.configurationRevision, 'string');
+  assert.equal('providers' in first.settings, false);
+  for (const secret of ['private-key-do-not-expose', 'https://api.example.com', 'apiKey', 'baseUrl']) assert.equal(JSON.stringify(first).includes(secret), false);
+  changedListener({ [settingsKey]: { oldValue: settings, newValue: { ...settings, selectionEnabled: !settings.selectionEnabled } } }, 'local');
+  assert.equal((await message({ type: 'GET_MANUAL_SETTINGS' }, content)).configurationRevision, first.configurationRevision, 'selection preferences cannot invalidate a manual translation');
+  const previous = structuredClone(settings), updated = structuredClone(settings);
+  updated.providers.custom.apiKey = 'revision-test-fake-key';
+  await chrome.storage.local.set({ [settingsKey]: updated });
+  const second = await message({ type: 'GET_MANUAL_SETTINGS' }, content);
+  assert.notEqual(second.configurationRevision, first.configurationRevision);
+  assert.equal(JSON.stringify(second).includes('revision-test-fake-key'), false);
+  await chrome.storage.local.set({ [settingsKey]: previous });
+  const foreign = { ...content, id: 'other-extension' };
+  assert.equal((await message({ type: 'GET_MANUAL_SETTINGS' }, foreign)).ok, false);
+  assert.equal((await message({ type: 'MANUAL_OPEN_OPTIONS' }, foreign)).ok, false);
+  assert.deepEqual(await message({ type: 'MANUAL_OPEN_OPTIONS' }, content), { ok: true });
+  assert.equal(openedOptions, true);
+});
+
+test('manual input accepts isolated content scripts, validates Unicode limits and reads only saved config', async () => {
   let calls = 0;
   globalThis.fetch = async (url, options) => {
     calls++;
     assert.equal(url, 'https://api.example.com/v1/chat/completions');
     return translationResponse(options, '手动译文');
   };
-  assert.equal((await message(manual('content-denied'), content)).ok, false);
-  assert.equal((await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'denied' }, content)).ok, false);
+  const foreign = { ...content, id: 'other-extension' };
+  assert.equal((await message(manual('content-denied'), foreign)).ok, false);
+  assert.equal((await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'denied' }, foreign)).ok, false);
   for (const request of [manual(''), manual('bad id'), manual('empty', ''), manual('spaces', '  '), manual('object', {}), manual('long', '😀'.repeat(5001)), manual('language', 'Hello', { targetLanguage: 'anything' })]) assert.equal((await message(request, translatorUI)).ok, false);
   assert.equal(calls, 0);
   const result = await message(manual('unicode-boundary', '😀'.repeat(5000), { targetLanguage: 'fr', providerId: 'other', config: { apiKey: 'attacker', baseUrl: 'https://elsewhere.invalid' } }), translatorUI);
   assert.deepEqual(result, { ok: true, text: '手动译文', cached: false, providerId: 'custom', model: 'test-model', targetLanguage: 'fr' });
   assert.equal(calls, 1);
   assert.equal(JSON.stringify(result).includes('private-key'), false);
+  assert.equal((await message(manual('in-page-manual', 'Entered in floating panel'), content)).ok, true);
 });
 
 test('manual translation needs only the selected API host, works with selection off, and shares cache and usage', async () => {
@@ -432,7 +466,25 @@ test('cancelling manual input while its permission check is pending prevents any
   } finally { chrome.permissions.contains = originalContains; }
 });
 
-test('closing the manual window cancels its active request without pagehide or cancelling the page', async () => {
+test('in-page manual requests stay isolated by document and cancellation survives same-page URL changes', async () => {
+  const firstDocument = { ...content, documentId: 'floating-document-1' };
+  const otherDocument = { ...content, documentId: 'floating-document-2', tab: { ...content.tab, id: 23 } };
+  let started;
+  const networkStarted = new Promise(resolve => { started = resolve; });
+  globalThis.fetch = async (_url, options) => new Promise((_resolve, reject) => {
+    started();
+    options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+  });
+  const task = message(manual('route-cancel', 'Floating panel source'), firstDocument);
+  await networkStarted;
+  await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'route-cancel' }, otherDocument);
+  assert.equal((await message(manual('route-cancel', 'Duplicate'), firstDocument)).code, 'REQUEST_IN_PROGRESS');
+  const changedRoute = { ...firstDocument, url: 'https://news.example.com/another-route', tab: { ...firstDocument.tab, url: 'https://news.example.com/another-route' } };
+  await message({ type: 'CANCEL_TEXT_TRANSLATION', requestId: 'route-cancel' }, changedRoute);
+  assert.equal((await task).code, 'ABORTED');
+});
+
+test('closing the manual owner tab cancels its active request without pagehide or cancelling another page', async () => {
   const signals = new Map(), finishes = new Map();
   globalThis.fetch = async (_url, options) => {
     const text = JSON.parse(JSON.parse(options.body).messages[1].content)[0].text;
@@ -450,6 +502,25 @@ test('closing the manual window cancels its active request without pagehide or c
   assert.equal(signals.get('Page continues').aborted, false);
   finishes.get('Page continues')();
   assert.equal((await pageTask).ok, true);
+});
+
+test('full page navigation cancels destroyed-panel requests while same-page route changes keep them active', async () => {
+  let started, signal;
+  const networkStarted = new Promise(resolve => { started = resolve; });
+  globalThis.fetch = async (_url, options) => {
+    signal = options.signal;
+    return new Promise((_resolve, reject) => {
+      started();
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    });
+  };
+  const task = message(manual('panel-navigation', 'Floating panel before navigation'), { ...content, documentId: 'navigating-manual-document' });
+  await networkStarted;
+  tabUpdatedListener(23, { status: 'loading' });
+  tabUpdatedListener(content.tab.id, { url: 'https://news.example.com/spa-route' });
+  assert.equal(signal.aborted, false);
+  tabUpdatedListener(content.tab.id, { status: 'loading' });
+  assert.equal((await task).code, 'ABORTED');
 });
 
 test('queued manual work shares the page concurrency limit and cancellation does not consume a network slot', async () => {
